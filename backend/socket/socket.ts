@@ -7,6 +7,8 @@ import { registerChatEvents } from './chatEvents.js';
 import { registerCallEvents } from './callEvents.js';
 import { registerWebRTCEvents } from './webrtcEvents.js';
 import Conversation from '../modals/Conversation';
+import { clerkClient } from '@clerk/clerk-sdk-node';
+import User from '../modals/userModal.js';
 
 dotenv.config();
 
@@ -38,13 +40,49 @@ export const initializeSocket = (server: Server): SocketIOServer => {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET as string);
+      // Try Clerk token verification first
+      try {
+        const payload = await clerkClient.verifyToken(token, {
+          secretKey: process.env.CLERK_SECRET_KEY
+        });
+        
+        if (payload && payload.sub) {
+          // Get user from Clerk
+          const clerkUser = await clerkClient.users.getUser(payload.sub);
+          
+          // Find or create MongoDB user
+          let mongoUser = await User.findOne({ clerkId: clerkUser.id });
+          if (!mongoUser) {
+            const email = clerkUser.emailAddresses[0]?.emailAddress;
+            mongoUser = await User.findOne({ email });
+          }
+          
+          if (!mongoUser) {
+            // Create user if doesn't exist
+            mongoUser = await User.create({
+              clerkId: clerkUser.id,
+              name: clerkUser.firstName || clerkUser.username || 'User',
+              email: clerkUser.emailAddresses[0]?.emailAddress || '',
+              avatar: clerkUser.imageUrl || null,
+            });
+            console.log('[Socket] Created new user from Clerk:', mongoUser._id);
+          }
+          
+          (socket as any).userId = mongoUser._id.toString();
+          (socket as any).userEmail = mongoUser.email;
+          (socket as any).userName = mongoUser.name;
 
-      (socket as any).userId = (decoded as any).userId;
-      (socket as any).userEmail = (decoded as any).email;
-
-      console.log("[Socket] User authenticated:", (decoded as any).email);
-      next();
+          console.log("[Socket] User authenticated via Clerk:", mongoUser.email);
+          return next();
+        }
+      } catch (clerkError) {
+        // If Clerk fails, try JWT (backward compatibility)
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string);
+        (socket as any).userId = (decoded as any).userId;
+        (socket as any).userEmail = (decoded as any).email;
+        console.log("[Socket] User authenticated via JWT:", (decoded as any).email);
+        return next();
+      }
     } catch (err: any) {
       console.log("[Socket] Token verification failed:", err.message);
       return next(new Error("Authentication error: invalid token"));
