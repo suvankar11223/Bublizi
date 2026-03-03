@@ -16,12 +16,36 @@ const messageSchema = new mongoose.Schema(
     attachment: String,
     type: {
       type: String,
-      enum: ['text', 'image', 'voice'],
+      enum: ['text', 'image', 'voice', 'document'],
       default: 'text',
     },
     // Voice message fields
     audioUrl: String,
     audioDuration: Number, // in seconds
+    // Edit tracking
+    isEdited: {
+      type: Boolean,
+      default: false,
+    },
+    editedAt: Date,
+    originalContent: String, // Saved on first edit only
+    // Delete tracking
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: Date,
+    deletedFor: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    }],
+    // Document metadata
+    document: {
+      url: String,
+      name: String,
+      size: Number, // bytes
+      mimeType: String,
+    },
     // Pinned message
     isPinned: {
       type: Boolean,

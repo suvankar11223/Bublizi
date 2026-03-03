@@ -10,6 +10,24 @@ export interface IUser extends Document {
   created?: Date;
   createdAt?: Date;
   updatedAt?: Date;
+  // NEW: Blocking
+  blockedUsers?: mongoose.Types.ObjectId[];
+  // NEW: Stories
+  stories?: Array<{
+    _id?: mongoose.Types.ObjectId;
+    mediaUrl: string;
+    mediaType: 'image' | 'video';
+    caption?: string;
+    viewers: mongoose.Types.ObjectId[];
+    expiresAt: Date;
+    createdAt: Date;
+  }>;
+  // NEW: Status
+  status?: {
+    text?: string;
+    emoji?: string;
+    updatedAt?: Date;
+  };
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -47,11 +65,54 @@ const userSchema = new Schema<IUser>(
       type: Date,
       default: Date.now,
     },
-  },
+    // Blocking
+    blockedUsers: [{
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    }],
+    // Stories
+    stories: [{
+      mediaUrl: {
+        type: String,
+        required: true,
+      },
+      mediaType: {
+        type: String,
+        enum: ['image', 'video'],
+        required: true,
+      },
+      caption: String,
+      viewers: [{
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      }],
+      expiresAt: {
+        type: Date,
+        required: true,
+        index: true, // TTL index for auto-deletion
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
+    // Status
+    status: {
+      text: {
+        type: String,
+        maxlength: 100,
+      },
+      emoji: String,
+      updatedAt: Date,
+    },
+  } as any,
   {
     timestamps: true,
   }
 );
+
+// TTL index for automatic story deletion after expiry
+userSchema.index({ 'stories.expiresAt': 1 }, { expireAfterSeconds: 0 });
 
 // Hash password before saving
 userSchema.pre("save", async function () {

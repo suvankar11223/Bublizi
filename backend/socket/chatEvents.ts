@@ -679,4 +679,321 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
       });
     }
   });
+
+  // Register additional event handlers
+  registerMessageEditDeleteEvents(io, socket);
+  registerStoryEvents(io, socket);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MESSAGE EDIT & DELETE EVENTS
+// ─────────────────────────────────────────────────────────────────────────────
+export function registerMessageEditDeleteEvents(io: SocketIOServer, socket: Socket) {
+  const userId = (socket as any).userId;
+
+  // ── EDIT MESSAGE ──────────────────────────────────────────────────────────
+  socket.on("message:edit", async (data: {
+    messageId: string;
+    newContent: string;
+    conversationId: string;
+  }) => {
+    try {
+      const message = await Message.findById(data.messageId);
+      if (!message) throw new Error("Message not found");
+      if (message.senderId.toString() !== userId) throw new Error("Not authorized");
+      if (message.isDeleted) throw new Error("Cannot edit deleted message");
+      if (message.type !== 'text') throw new Error("Only text messages can be edited");
+
+      // Save original on first edit
+      if (!message.isEdited) message.originalContent = message.content;
+
+      message.content = data.newContent.trim();
+      message.isEdited = true;
+      message.editedAt = new Date();
+      await message.save();
+
+      io.to(data.conversationId).emit("message:edited", {
+        success: true,
+        messageId: data.messageId,
+        newContent: message.content,
+        editedAt: message.editedAt,
+      });
+    } catch (err: any) {
+      socket.emit("message:edit:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── DELETE MESSAGE ────────────────────────────────────────────────────────
+  socket.on("message:delete", async (data: {
+    messageId: string;
+    conversationId: string;
+    deleteFor: 'me' | 'everyone';
+  }) => {
+    try {
+      const message = await Message.findById(data.messageId);
+      if (!message) throw new Error("Message not found");
+
+      if (data.deleteFor === 'everyone') {
+        if (message.senderId.toString() !== userId) throw new Error("Not authorized");
+
+        message.isDeleted = true;
+        message.deletedAt = new Date();
+        message.content = '';
+        message.attachment = undefined;
+        (message as any).document = undefined;
+        message.audioUrl = undefined;
+        await message.save();
+
+        io.to(data.conversationId).emit("message:deleted", {
+          success: true,
+          messageId: data.messageId,
+          deleteFor: 'everyone',
+        });
+      } else {
+        // Delete for me only
+        await Message.findByIdAndUpdate(data.messageId, {
+          $addToSet: { deletedFor: userId },
+        });
+
+        socket.emit("message:deleted", {
+          success: true,
+          messageId: data.messageId,
+          deleteFor: 'me',
+        });
+      }
+    } catch (err: any) {
+      socket.emit("message:delete:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── SEND DOCUMENT ─────────────────────────────────────────────────────────
+  socket.on("document:send", async (data: {
+    conversationId: string;
+    senderId: string;
+    senderName: string;
+    senderAvatar: string;
+    document: { url: string; name: string; size: number; mimeType: string; };
+  }) => {
+    try {
+      if (!data.conversationId || !data.senderId || !data.document?.url) {
+        throw new Error('Missing required document data');
+      }
+
+      const message = await Message.create({
+        conversationId: data.conversationId,
+        senderId: data.senderId,
+        content: data.document.name,
+        type: 'document',
+        document: data.document,
+        readBy: [data.senderId],
+      });
+
+      const messageData = {
+        success: true,
+        data: {
+          id: message._id.toString(),
+          content: data.document.name,
+          type: 'document',
+          document: data.document,
+          sender: {
+            id: data.senderId,
+            name: data.senderName,
+            avatar: data.senderAvatar,
+          },
+          createdAt: (message as any).createdAt.toISOString(),
+          conversationId: data.conversationId,
+        },
+      };
+
+      io.to(data.conversationId).emit("newMessage", messageData);
+
+      await Conversation.findByIdAndUpdate(data.conversationId, {
+        lastMessage: message._id,
+        updatedAt: new Date(),
+      });
+    } catch (err: any) {
+      socket.emit("document:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── BLOCK USER ────────────────────────────────────────────────────────────
+  socket.on("user:block", async (data: { targetUserId: string }) => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      await User.findByIdAndUpdate(userId, {
+        $addToSet: { blockedUsers: data.targetUserId },
+      });
+
+      socket.emit("user:blocked", { success: true, blockedUserId: data.targetUserId });
+    } catch (err: any) {
+      socket.emit("user:block:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── UNBLOCK USER ──────────────────────────────────────────────────────────
+  socket.on("user:unblock", async (data: { targetUserId: string }) => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      await User.findByIdAndUpdate(userId, {
+        $pull: { blockedUsers: data.targetUserId },
+      });
+
+      socket.emit("user:unblocked", { success: true, unblockedUserId: data.targetUserId });
+    } catch (err: any) {
+      socket.emit("user:unblock:error", { success: false, msg: err.message });
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORIES & STATUS EVENTS
+// ─────────────────────────────────────────────────────────────────────────────
+export function registerStoryEvents(io: SocketIOServer, socket: Socket) {
+  const userId = (socket as any).userId;
+
+  // ── POST STORY ────────────────────────────────────────────────────────────
+  socket.on("story:post", async (data: {
+    mediaUrl: string;
+    mediaType: 'image' | 'video';
+    caption?: string;
+  }) => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      const story = {
+        mediaUrl: data.mediaUrl,
+        mediaType: data.mediaType || 'image',
+        caption: data.caption || '',
+        viewers: [],
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+      };
+
+      const user = await User.findByIdAndUpdate(userId,
+        { $push: { stories: story } },
+        { new: true }
+      ).select('name avatar stories');
+
+      if (!user) throw new Error('User not found');
+
+      const newStory = (user as any).stories[(user as any).stories.length - 1];
+
+      socket.broadcast.emit("story:new", {
+        userId,
+        userName: (user as any).name,
+        userAvatar: (user as any).avatar,
+        story: {
+          id: newStory._id,
+          mediaUrl: newStory.mediaUrl,
+          mediaType: newStory.mediaType,
+          caption: newStory.caption,
+          expiresAt: newStory.expiresAt,
+          createdAt: newStory.createdAt,
+          viewCount: 0,
+        },
+      });
+
+      socket.emit("story:posted", {
+        success: true,
+        story: { id: newStory._id, ...newStory },
+      });
+    } catch (err: any) {
+      socket.emit("story:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── VIEW STORY ────────────────────────────────────────────────────────────
+  socket.on("story:view", async (data: { storyOwnerId: string; storyId: string }) => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      await User.updateOne(
+        { _id: data.storyOwnerId, "stories._id": data.storyId },
+        { $addToSet: { "stories.$.viewers": userId } }
+      );
+
+      const allSockets = Array.from(io.sockets.sockets.values());
+      const ownerSockets = allSockets.filter((s) => (s as any).userId === data.storyOwnerId);
+
+      ownerSockets.forEach((s) => {
+        s.emit("story:viewed", { storyId: data.storyId, viewerId: userId });
+      });
+    } catch (err: any) {
+      console.error('[Story] view error:', err.message);
+    }
+  });
+
+  // ── DELETE STORY ──────────────────────────────────────────────────────────
+  socket.on("story:delete", async (data: { storyId: string }) => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      await User.findByIdAndUpdate(userId, {
+        $pull: { stories: { _id: data.storyId } },
+      });
+
+      socket.emit("story:deleted", { success: true, storyId: data.storyId });
+    } catch (err: any) {
+      socket.emit("story:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── GET ALL STORIES ───────────────────────────────────────────────────────
+  socket.on("stories:get", async () => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      const now = new Date();
+      const usersWithStories = await User.find({
+        "stories.0": { $exists: true },
+        "stories.expiresAt": { $gt: now },
+      }).select('name avatar stories').lean();
+
+      const storiesData = usersWithStories.map((user: any) => {
+        const activeStories = user.stories.filter((s: any) => new Date(s.expiresAt) > now);
+        if (!activeStories.length) return null;
+
+        return {
+          userId: user._id,
+          userName: user.name,
+          userAvatar: user.avatar,
+          stories: activeStories.map((s: any) => ({
+            id: s._id,
+            mediaUrl: s.mediaUrl,
+            mediaType: s.mediaType,
+            caption: s.caption,
+            expiresAt: s.expiresAt,
+            createdAt: s.createdAt,
+            viewCount: s.viewers?.length || 0,
+            isViewedByMe: s.viewers?.map((v: any) => v.toString()).includes(userId),
+          })),
+        };
+      }).filter(Boolean);
+
+      socket.emit("stories:data", { success: true, data: storiesData });
+    } catch (err: any) {
+      socket.emit("stories:error", { success: false, msg: err.message });
+    }
+  });
+
+  // ── UPDATE STATUS TEXT ────────────────────────────────────────────────────
+  socket.on("status:update", async (data: { text: string; emoji: string }) => {
+    try {
+      const User = (await import('../modals/userModal.js')).default;
+      const user = await User.findByIdAndUpdate(userId,
+        {
+          "status.text": data.text,
+          "status.emoji": data.emoji,
+          "status.updatedAt": new Date(),
+        },
+        { new: true }
+      ).select('name status');
+
+      socket.emit("status:updated", { success: true, status: (user as any)?.status });
+
+      socket.broadcast.emit("status:changed", {
+        userId,
+        status: (user as any)?.status,
+      });
+    } catch (err: any) {
+      socket.emit("status:error", { success: false, msg: err.message });
+    }
+  });
+}
+
