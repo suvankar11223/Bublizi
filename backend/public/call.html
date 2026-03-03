@@ -363,64 +363,107 @@
 
     async function init() {
       try {
+        console.log('[Call.html] ========== INIT START ==========');
+        console.log('[Call.html] roomId:', roomId);
+        console.log('[Call.html] userId:', userId);
+        console.log('[Call.html] isCaller:', isCaller);
+        console.log('[Call.html] callType:', callType);
+        console.log('[Call.html] serverUrl:', serverUrl);
+        console.log('[Call.html] conversationId:', conversationId);
+        
         setStatus('Getting camera...', 'connecting');
         localStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: callType === 'video' ? { facingMode: 'user' } : false,
         });
         localVideo.srcObject = localStream;
+        console.log('[Call.html] ✅ Got local media stream');
 
         setStatus('Connecting...', 'connecting');
+        console.log('[Call.html] Connecting to socket at:', serverUrl);
         socket = io(serverUrl, { auth: { token }, transports: ['polling', 'websocket'] });
 
         socket.on('connect', () => {
+          console.log('[Call.html] ✅ Socket connected, socket ID:', socket.id);
           setStatus('Waiting for other person...', 'connecting');
+          console.log('[Call.html] Emitting joinCallRoom with:', { roomId, userId });
           socket.emit('joinCallRoom', { roomId, userId });
         });
 
-        socket.on('connect_error', () => setStatus('Connection failed', ''));
-
-        socket.on('callRoomReady', async () => {
-          if (isCaller) { setStatus('Calling...', 'connecting'); await createOffer(); }
-          else setStatus('Connecting...', 'connecting');
+        socket.on('connect_error', (error) => {
+          console.error('[Call.html] ❌ Socket connect_error:', error.message);
+          setStatus('Connection failed', '');
         });
 
-        socket.on('webrtcOffer',  async ({ offer })  => await createAnswer(offer));
+        socket.on('disconnect', (reason) => {
+          console.log('[Call.html] Socket disconnected:', reason);
+        });
+
+        socket.on('callRoomReady', async () => {
+          console.log('[Call.html] ✅ callRoomReady received');
+          if (isCaller) { 
+            console.log('[Call.html] I am caller, creating offer...');
+            setStatus('Calling...', 'connecting'); 
+            await createOffer(); 
+          } else {
+            console.log('[Call.html] I am receiver, waiting for offer...');
+            setStatus('Connecting...', 'connecting');
+          }
+        });
+
+        socket.on('webrtcOffer',  async ({ offer })  => {
+          console.log('[Call.html] ✅ Received webrtcOffer');
+          await createAnswer(offer);
+        });
+        
         socket.on('webrtcAnswer', async ({ answer }) => {
+          console.log('[Call.html] ✅ Received webrtcAnswer');
           if (peerConnection) await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
         });
 
         socket.on('webrtcIce', async ({ candidate }) => {
+          console.log('[Call.html] ✅ Received ICE candidate');
           if (peerConnection && candidate) {
-            try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
+            try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){
+              console.error('[Call.html] Error adding ICE candidate:', e);
+            }
           }
         });
 
         socket.on('callEnded', () => {
+          console.log('[Call.html] ✅ Received callEnded event');
           cleanup();
           window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'callEnded' }));
         });
 
       } catch (err) {
+        console.error('[Call.html] ❌ Init error:', err.message);
         setStatus('Error: ' + err.message, '');
       }
     }
 
     function buildPC() {
+      console.log('[Call.html] Building peer connection...');
       peerConnection = new RTCPeerConnection(iceConfig);
       localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+      console.log('[Call.html] ✅ Added local tracks to peer connection');
 
       peerConnection.ontrack = e => {
+        console.log('[Call.html] ✅ Received remote track');
         remoteVideo.srcObject = e.streams[0];
         setStatus('Connected', 'connected');
       };
 
       peerConnection.onicecandidate = e => {
-        if (e.candidate) socket.emit('webrtcIce', { roomId, candidate: e.candidate });
+        if (e.candidate) {
+          console.log('[Call.html] Sending ICE candidate');
+          socket.emit('webrtcIce', { roomId, candidate: e.candidate });
+        }
       };
 
       peerConnection.onconnectionstatechange = () => {
         const s = peerConnection.connectionState;
+        console.log('[Call.html] Connection state changed to:', s);
         if (s === 'connected') setStatus('Connected', 'connected');
         else if (s === 'disconnected') setStatus('Reconnecting...', 'connecting');
         else if (s === 'failed') setStatus('Connection lost', '');
@@ -435,17 +478,21 @@
     }
 
     async function createOffer() {
+      console.log('[Call.html] Creating offer...');
       buildPC();
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
+      console.log('[Call.html] ✅ Offer created, emitting to server');
       socket.emit('webrtcOffer', { roomId, offer });
     }
 
     async function createAnswer(offer) {
+      console.log('[Call.html] Creating answer...');
       buildPC();
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
+      console.log('[Call.html] ✅ Answer created, emitting to server');
       socket.emit('webrtcAnswer', { roomId, answer });
     }
 
@@ -512,6 +559,18 @@
       socket?.disconnect();
     }
 
+    // Test if console logging works
+    console.log('[Call.html] ========== SCRIPT LOADED ==========');
+    console.log('[Call.html] window.ReactNativeWebView exists:', !!window.ReactNativeWebView);
+    
+    // Send message to React Native immediately
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ 
+        type: 'debug', 
+        message: 'call.html script loaded successfully' 
+      }));
+    }
+    
     init();
   </script>
 </body>
