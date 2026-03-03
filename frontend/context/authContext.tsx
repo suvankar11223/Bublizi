@@ -91,15 +91,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 }
               } catch (profileError) {
                 console.error('[Auth] Error fetching profile, using Clerk data:', profileError);
+                console.error('[Auth] ⚠️ WARNING: Using Clerk ID as fallback - calls may not work!');
                 // Fallback to Clerk data
                 const userObj: UserProps = {
-                  id: clerkUser.id,
+                  id: clerkUser.id, // ⚠️ This is Clerk ID, not MongoDB ID
                   email: clerkUser.primaryEmailAddress?.emailAddress || '',
                   name: clerkUser.firstName || clerkUser.username || 'User',
                   avatar: clerkUser.imageUrl || undefined,
                 };
                 setUser(userObj);
                 setProfileFetched(true);
+                
+                // Try to fetch profile again after a delay
+                setTimeout(async () => {
+                  try {
+                    const { getApiUrl } = await import('@/constants');
+                    const apiUrl = await getApiUrl();
+                    const freshToken = await getToken({ skipCache: true });
+                    
+                    if (freshToken) {
+                      const response = await fetch(`${apiUrl}/user/profile`, {
+                        headers: { 'Authorization': `Bearer ${freshToken}` },
+                      });
+                      
+                      if (response.ok) {
+                        const result = await response.json();
+                        if (result.success && result.data) {
+                          console.log('[Auth] ✅ Retry successful - got MongoDB ID:', result.data.id);
+                          setUser({
+                            id: result.data.id, // MongoDB ObjectId
+                            email: result.data.email,
+                            name: result.data.name,
+                            avatar: result.data.avatar || clerkUser.imageUrl || undefined,
+                          });
+                        }
+                      }
+                    }
+                  } catch (retryError) {
+                    console.error('[Auth] Retry failed:', retryError);
+                  }
+                }, 2000);
               }
             }
             
