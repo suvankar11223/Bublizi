@@ -1,5 +1,4 @@
 import { Audio } from 'expo-av';
-import { File } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 class AudioService {
@@ -169,36 +168,26 @@ class AudioService {
     apiBaseUrl: string
   ): Promise<{ audioUrl: string }> {
     try {
-      console.log('[AudioService] Uploading voice message...');
+      const fullUrl = `${apiBaseUrl}/api/upload/voice`;
+      console.log('[AudioService] Full upload URL:', fullUrl);
+      console.log('[AudioService] apiBaseUrl received:', apiBaseUrl);
+      console.log('[AudioService] uri:', uri);
+      console.log('[AudioService] duration:', duration);
       
+      // Skip file existence check — just attempt upload directly
       const formData = new FormData();
-      
-      // Use new File API instead of deprecated getInfoAsync
-      try {
-        // Check if file exists using the new File API
-        const file = new File(uri);
-        const exists = await file.exists();
-        
-        if (!exists) {
-          throw new Error('Audio file does not exist');
-        }
-      } catch (fileError) {
-        // Fallback: just try to upload anyway
-        console.log('[AudioService] Could not verify file existence, proceeding with upload');
-      }
-
-      // Create file object for upload
       const filename = `voice_${Date.now()}.m4a`;
-      const file: any = {
+      const fileObj: any = {
         uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
         name: filename,
         type: 'audio/m4a',
       };
 
-      formData.append('audio', file);
+      formData.append('audio', fileObj);
       formData.append('duration', String(duration));
 
-      const response = await fetch(`${apiBaseUrl}/api/upload/voice`, {
+      console.log('[AudioService] Uploading to:', fullUrl);
+      const response = await fetch(fullUrl, {
         method: 'POST',
         body: formData,
         headers: {
@@ -212,8 +201,11 @@ class AudioService {
       }
 
       const result = await response.json();
+      if (!result.success) {
+        throw new Error(`Upload failed: ${JSON.stringify(result)}`);
+      }
+
       console.log('[AudioService] Upload successful:', result.audioUrl);
-      
       return { audioUrl: result.audioUrl };
     } catch (error) {
       console.error('[AudioService] Upload failed:', error);
