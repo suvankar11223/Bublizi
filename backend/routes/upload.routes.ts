@@ -18,6 +18,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Log Cloudinary config status on startup
+console.log('[Upload] Cloudinary config:', {
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? '✅ set' : '❌ missing',
+  api_key: process.env.CLOUDINARY_API_KEY ? '✅ set' : '❌ missing',
+  api_secret: process.env.CLOUDINARY_API_SECRET ? '✅ set' : '❌ missing',
+});
+
 // Upload voice message
 router.post('/voice', upload.single('audio'), async (req, res) => {
   try {
@@ -36,8 +43,12 @@ router.post('/voice', upload.single('audio'), async (req, res) => {
       },
       (error, result) => {
         if (error) {
-          console.error('Cloudinary upload error:', error);
-          return res.status(500).json({ success: false, msg: 'Upload failed' });
+          console.error('Cloudinary upload error:', JSON.stringify(error));
+          return res.status(500).json({ 
+            success: false, 
+            msg: 'Upload failed',
+            detail: error.message 
+          });
         }
 
         res.json({
