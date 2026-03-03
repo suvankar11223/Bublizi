@@ -390,9 +390,24 @@
           socket.emit('joinCallRoom', { roomId, userId });
         });
 
+        // ✅ Retry joinCallRoom if callRoomReady doesn't fire in 5s
+        // (handles race condition where one side connected slightly before the other)
+        setTimeout(() => {
+          if (!callConnected && socket?.connected) {
+            console.log('[Call.html] Retrying joinCallRoom...');
+            socket.emit('joinCallRoom', { roomId, userId });
+          }
+        }, 5000);
+
         socket.on('connect_error', (error) => {
           console.error('[Call.html] ❌ Socket connect_error:', error.message);
           setStatus('Connection failed', '');
+        });
+
+        // ✅ Handle call failed
+        socket.on('callFailed', ({ reason }) => {
+          console.log('[Call.html] ❌ Call failed:', reason);
+          setStatus(reason || 'Call failed', '');
         });
 
         socket.on('disconnect', (reason) => {

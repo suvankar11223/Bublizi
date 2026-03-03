@@ -15,6 +15,14 @@ dotenv.config();
 // Track online users globally
 const onlineUsers = new Map<string, string>(); // userId → socketId
 
+// ✅ Cache Clerk user lookups to speed up WebView socket authentication
+const clerkUserCache = new Map<string, { 
+  mongoId: string; 
+  email: string; 
+  name: string; 
+  expires: number;
+}>();
+
 export const initializeSocket = (server: Server): SocketIOServer => {
   const io = new SocketIOServer(server, {
     cors: {
@@ -45,7 +53,17 @@ export const initializeSocket = (server: Server): SocketIOServer => {
         const payload = await clerkClient.verifyToken(token);
         
         if (payload && payload.sub) {
-          // Get user from Clerk
+          // ✅ Check cache first to speed up WebView socket connections
+          const cached = clerkUserCache.get(payload.sub);
+          if (cached && cached.expires > Date.now()) {
+            (socket as any).userId = cached.mongoId;
+            (socket as any).userEmail = cached.email;
+            (socket as any).userName = cached.name;
+            console.log("[Socket] User authenticated via cache:", cached.email);
+            return next();
+          }
+
+          // Get user from Clerk (only if not cached)
           const clerkUser = await clerkClient.users.getUser(payload.sub);
           
           // Find or create MongoDB user
@@ -61,7 +79,7 @@ export const initializeSocket = (server: Server): SocketIOServer => {
               clerkId: clerkUser.id,
               name: clerkUser.firstName || clerkUser.username || 'User',
               email: clerkUser.emailAddresses[0]?.emailAddress || '',
-              avatar: clerkUser.imageUrl || clerkUser.profileImageUrl || null,
+              avatar: clerkUser.imageUrl || null,
             });
             console.log('[Socket] Created new user from Clerk:', mongoUser._id);
             console.log('[Socket] User avatar:', mongoUser.avatar);
@@ -73,6 +91,14 @@ export const initializeSocket = (server: Server): SocketIOServer => {
           (socket as any).userId = mongoUser._id.toString();
           (socket as any).userEmail = mongoUser.email;
           (socket as any).userName = mongoUser.name;
+
+          // ✅ Cache for 5 minutes to speed up subsequent connections
+          clerkUserCache.set(payload.sub, {
+            mongoId: mongoUser._id.toString(),
+            email: mongoUser.email,
+            name: mongoUser.name,
+            expires: Date.now() + 5 * 60 * 1000,
+          });
 
           console.log("[Socket] User authenticated via Clerk:", mongoUser.email);
           return next();

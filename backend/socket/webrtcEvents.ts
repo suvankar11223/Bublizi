@@ -2,20 +2,44 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import Message from '../modals/Message.js';
 import Conversation from '../modals/Conversation.js';
 
+// Track rooms and their ready state
+const readyRooms = new Map<string, NodeJS.Timeout>();
+
 export function registerWebRTCEvents(io: SocketIOServer, socket: Socket) {
   // Join a call room (both caller and receiver join same roomId)
   socket.on('joinCallRoom', ({ roomId, userId }) => {
     socket.join(roomId);
     console.log(`[WebRTC] ${userId} joined room ${roomId}`);
 
+    // Cancel any existing timeout for this room
+    if (readyRooms.has(roomId)) {
+      clearTimeout(readyRooms.get(roomId)!);
+    }
+
     // Count people in room
     const room = io.sockets.adapter.rooms.get(roomId);
     const count = room ? room.size : 0;
     console.log(`[WebRTC] Room ${roomId} now has ${count} people`);
 
-    // When 2 people are in room, signal them to start
-    if (count === 2) {
+    if (count >= 2) {
+      // ✅ Fire immediately if both are here
       io.to(roomId).emit('callRoomReady');
+      readyRooms.delete(roomId);
+    } else {
+      // ✅ Wait up to 15s for the second person
+      const timeout = setTimeout(() => {
+        const room = io.sockets.adapter.rooms.get(roomId);
+        const currentCount = room ? room.size : 0;
+        console.log(`[WebRTC] Timeout check - room ${roomId} has ${currentCount} people`);
+        if (currentCount >= 2) {
+          io.to(roomId).emit('callRoomReady');
+        } else {
+          // Notify the waiting person no one joined
+          io.to(roomId).emit('callFailed', { reason: 'Other person did not join' });
+        }
+        readyRooms.delete(roomId);
+      }, 15000);
+      readyRooms.set(roomId, timeout);
     }
   });
 
