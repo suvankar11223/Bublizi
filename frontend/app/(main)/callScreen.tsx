@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, StatusBar, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getSocket } from '@/socket/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/authContext';
+import { getServerUrl } from '@/utils/network';
 
 export default function CallScreen() {
   const router = useRouter();
@@ -17,16 +18,29 @@ export default function CallScreen() {
   const name = String(params.name || 'User');
   const otherUserId = String(params.otherUserId || '');
   const isCaller = params.isCaller === 'true';
+  const conversationId = String(params.conversationId || '');
   
   const [callUrl, setCallUrl] = useState<string | null>(null);
 
+  // Helper to navigate back to conversation or home
+  const navigateBack = useCallback(() => {
+    if (conversationId) {
+      // Go back to the conversation screen
+      router.back();
+    } else {
+      // Fallback to home if no conversationId
+      router.replace('/(main)/home');
+    }
+  }, [conversationId, router]);
+
   useEffect(() => {
     buildCallUrl();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const buildCallUrl = async () => {
     const token = await AsyncStorage.getItem('token');
-    const serverUrl = 'https://chatzi-1m0m.onrender.com';
+    const serverUrl = await getServerUrl(); // Use dynamic server URL instead of hardcoded
     const userId = user?.id || ''; // Use user from context
     const conversationId = String(params.conversationId || '');
 
@@ -39,7 +53,11 @@ export default function CallScreen() {
     // Build URL pointing to the HTML page served by your backend
     const url = `${serverUrl}/call.html?roomId=${encodeURIComponent(roomId)}&userId=${encodeURIComponent(userId)}&isCaller=${isCaller}&callType=${callType}&serverUrl=${encodeURIComponent(serverUrl)}&token=${encodeURIComponent(token || '')}&name=${encodeURIComponent(name)}&conversationId=${encodeURIComponent(conversationId)}`;
     
-    console.log('[CallScreen] Call URL built successfully');
+    console.log('[CallScreen] ========== FULL CALL URL ==========');
+    console.log('[CallScreen] URL:', url);
+    console.log('[CallScreen] URL length:', url.length);
+    console.log('[CallScreen] ==========================================');
+    
     setCallUrl(url);
   };
 
@@ -50,14 +68,14 @@ export default function CallScreen() {
     const onCallEnded = (data: any) => {
       if (data.callId === callId) {
         Alert.alert('Call Ended', `${name} ended the call`, [
-          { text: 'OK', onPress: () => router.back() }
+          { text: 'OK', onPress: navigateBack }
         ]);
       }
     };
 
     socket.on('callEnded', onCallEnded);
     return () => { socket.off('callEnded', onCallEnded); };
-  }, [callId]);
+  }, [callId, name, navigateBack]);
 
   const handleMessage = async (event: any) => {
     try {
@@ -65,6 +83,11 @@ export default function CallScreen() {
       console.log('[CallScreen] ========== WEBVIEW MESSAGE ==========');
       console.log('[CallScreen] Message type:', data.type);
       console.log('[CallScreen] Message data:', JSON.stringify(data, null, 2));
+      
+      if (data.type === 'debug') {
+        console.log('[CallScreen] DEBUG from WebView:', data.message);
+        return;
+      }
       
       if (data.type === 'endCall' || data.type === 'callEnded') {
         console.log('[CallScreen] Call ended, handling cleanup');
@@ -109,7 +132,7 @@ export default function CallScreen() {
         }
         
         console.log('[CallScreen] Navigating back');
-        router.back();
+        navigateBack();
       }
     } catch (error) {
       console.error('[CallScreen] Error handling WebView message:', error);
@@ -131,10 +154,24 @@ export default function CallScreen() {
         javaScriptEnabled={true}
         domStorageEnabled={true}
         originWhitelist={['*']}
+        mixedContentMode="always"
+        thirdPartyCookiesEnabled={true}
+        sharedCookiesEnabled={true}
+        cacheEnabled={false}
         onMessage={handleMessage}
-        onError={() => {
-          Alert.alert('Error', 'Call failed. Please try again.');
-          router.back();
+        onConsoleMessage={(event: any) => {
+          console.log('[WebView Console]', event.nativeEvent.message);
+        }}
+        onError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[WebView Error]', JSON.stringify(nativeEvent));
+          Alert.alert('Error', 'Call failed. Please try again.', [
+            { text: 'OK', onPress: navigateBack }
+          ]);
+        }}
+        onHttpError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[WebView HTTP Error]', nativeEvent.statusCode, nativeEvent.url);
         }}
       />
     </View>

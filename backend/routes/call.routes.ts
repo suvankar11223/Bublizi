@@ -1,6 +1,7 @@
 import express from "express";
 import { authenticateToken } from "../middleware/auth.js";
 import Call from "../modals/Call.js";
+import { validateObjectId } from "../middleware/validation.js";
 
 const router = express.Router();
 
@@ -39,7 +40,7 @@ router.get("/history", authenticateToken, async (req, res) => {
 });
 
 // Get call details by ID
-router.get("/:callId", authenticateToken, async (req, res) => {
+router.get("/:callId", authenticateToken, validateObjectId('callId'), async (req, res) => {
   try {
     const userId = (req as any).userId;
     const { callId } = req.params;
@@ -81,7 +82,7 @@ router.get("/:callId", authenticateToken, async (req, res) => {
 });
 
 // Delete a call record (optional)
-router.delete("/:callId", authenticateToken, async (req, res) => {
+router.delete("/:callId", authenticateToken, validateObjectId('callId'), async (req, res) => {
   try {
     const userId = (req as any).userId;
     const { callId } = req.params;

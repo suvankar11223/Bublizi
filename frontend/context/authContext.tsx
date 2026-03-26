@@ -1,8 +1,8 @@
 import { AuthContextProps, UserProps } from "@/types";
-import { createContext, ReactNode, useState, useEffect, useContext } from "react";
+import React, { createContext, ReactNode, useState, useEffect, useRef, useContext, useCallback } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { useUser, useAuth as useClerkAuth } from '@clerk/clerk-expo';
-import { connectSocket, disconnectSocket } from "@/socket/socket";
+import { connectSocket, disconnectSocket, getSocket } from "@/socket/socket";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const AuthContext = createContext<AuthContextProps>({
@@ -30,9 +30,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<UserProps | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [profileFetched, setProfileFetched] = useState(false); // Track if profile was fetched
+  // ✅ Use ref instead of state for profileFetched — avoids re-render loop
+  const profileFetchedRef = useRef(false);
   const router = useRouter();
   const segments = useSegments();
+
+  // Preload contacts and conversations after login
+  const preloadData = async (token: string) => {
+    try {
+      console.log('[Auth] Preloading contacts and conversations...');
+      const { fetchContactsFromAPI, fetchConversationsFromAPI } = await import('@/services/contactsService');
+      
+      // Fire both in parallel
+      Promise.all([
+        fetchContactsFromAPI(token).catch(() => []),
+        fetchConversationsFromAPI(token).catch(() => []),
+      ]).then(([contacts, conversations]) => {
+        console.log('[Auth] Preloaded:', contacts.length, 'contacts,', conversations.length, 'conversations');
+      }).catch(() => {});
+    } catch (err) {
+      console.log('[Auth] Preload error:', err);
+    }
+  };
 
   // Load Clerk user and token - only fetch profile once
   useEffect(() => {
@@ -40,6 +59,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const loadClerkData = async () => {
       try {
+        // Check for stored JWT token first (from phone OTP)
+        const storedToken = await AsyncStorage.getItem('token');
+        
+        if (storedToken && !clerkUser) {
+          // JWT token exists but no Clerk user - phone OTP login
+          console.log('[Auth] Found JWT token, loading phone user profile');
+          setToken(storedToken);
+          
+          try {
+            const { getApiUrl } = await import('@/constants');
+            const apiUrl = await getApiUrl();
+            
+            const response = await fetch(`${apiUrl}/user/profile`, {
+              headers: {
+                'Authorization': `Bearer ${storedToken}`,
+              },
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success && result.data) {
+                const userObj: UserProps = {
+                  id: result.data.id,
+                  email: result.data.email,
+                  name: result.data.name,
+                  avatar: result.data.avatar || undefined,
+                };
+                setUser(userObj);
+                profileFetchedRef.current = true;
+                console.log('[Auth] ✅ Phone user profile loaded, MongoDB ID:', userObj.id);
+                
+                // Connect socket and preload data
+                connectSocket().catch((err) => {
+                  console.error('[Auth] Socket connection failed:', err);
+                });
+                preloadData(storedToken).catch(() => {});
+              }
+            } else {
+              // Invalid token, remove it
+              await AsyncStorage.removeItem('token');
+              setToken(null);
+              setUser(null);
+            }
+          } catch (error) {
+            console.error('[Auth] Error loading phone user profile:', error);
+            await AsyncStorage.removeItem('token');
+            setToken(null);
+            setUser(null);
+          }
+          
+          if (!isInitialized) {
+            setIsInitialized(true);
+          }
+          return;
+        }
+
         if (clerkUser) {
           // Always get fresh token (Google OAuth tokens expire faster)
           const clerkToken = await getToken({ skipCache: true });
@@ -52,8 +127,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await AsyncStorage.setItem('token', clerkToken);
             console.log('[Auth] Token stored in AsyncStorage');
             
+            // ✅ Always update live socket's auth token (fixes reconnect loop)
+            const existingSocket = getSocket();
+            if (existingSocket) {
+              (existingSocket as any).auth = { token: clerkToken };
+              console.log('[Auth] Updated live socket auth token');
+            }
+            
             // Only fetch profile if not already fetched
-            if (!profileFetched) {
+            if (!profileFetchedRef.current) {
               // Fetch user profile from backend to get MongoDB ID
               try {
                 const { getApiUrl } = await import('@/constants');
@@ -77,10 +159,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                       avatar: result.data.avatar || clerkUser.imageUrl || undefined,
                     };
                     setUser(userObj);
-                    setProfileFetched(true);
-                    console.log('[Auth] User profile loaded from backend:', userObj.id);
-                    console.log('[Auth] User name:', userObj.name);
-                    console.log('[Auth] User avatar:', userObj.avatar);
+                    profileFetchedRef.current = true;
+                    console.log('[Auth] ✅ User profile loaded, MongoDB ID:', userObj.id);
+                    
+                    // ✅ Preload contacts and conversations in background
+                    preloadData(clerkToken).catch(() => {});
                   } else {
                     throw new Error('Failed to get user profile');
                   }
@@ -90,17 +173,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                   throw new Error('Profile fetch failed');
                 }
               } catch (profileError) {
-                console.error('[Auth] Error fetching profile, using Clerk data:', profileError);
-                console.error('[Auth] ⚠️ WARNING: Using Clerk ID as fallback - calls may not work!');
-                // Fallback to Clerk data
-                const userObj: UserProps = {
-                  id: clerkUser.id, // ⚠️ This is Clerk ID, not MongoDB ID
+                console.error('[Auth] Error fetching profile, using Clerk fallback:', profileError);
+                console.warn('[Auth] ⚠️ Using Clerk ID as fallback — calls may not work correctly!');
+                // Fallback to Clerk data temporarily
+                setUser({
+                  id: clerkUser.id, // ⚠️ Clerk ID, not MongoDB ID
                   email: clerkUser.primaryEmailAddress?.emailAddress || '',
                   name: clerkUser.firstName || clerkUser.username || 'User',
                   avatar: clerkUser.imageUrl || undefined,
-                };
-                setUser(userObj);
-                setProfileFetched(true);
+                });
+                profileFetchedRef.current = true;
                 
                 // Try to fetch profile again after a delay
                 setTimeout(async () => {
@@ -117,13 +199,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                       if (response.ok) {
                         const result = await response.json();
                         if (result.success && result.data) {
-                          console.log('[Auth] ✅ Retry successful - got MongoDB ID:', result.data.id);
+                          console.log('[Auth] ✅ Retry got MongoDB ID:', result.data.id);
                           setUser({
-                            id: result.data.id, // MongoDB ObjectId
+                            id: result.data.id,
                             email: result.data.email,
                             name: result.data.name,
                             avatar: result.data.avatar || clerkUser.imageUrl || undefined,
                           });
+                          
+                          // ✅ Preload data after retry
+                          preloadData(freshToken).catch(() => {});
                         }
                       }
                     }
@@ -143,15 +228,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           console.log('[Auth] No Clerk user, clearing state');
           setToken(null);
           setUser(null);
-          setProfileFetched(false);
-          // Clear token from AsyncStorage when logged out
+          profileFetchedRef.current = false;
           await AsyncStorage.removeItem('token');
         }
       } catch (error) {
         console.error('[Auth] Error loading Clerk data:', error);
         setToken(null);
         setUser(null);
-        setProfileFetched(false);
+        profileFetchedRef.current = false;
         await AsyncStorage.removeItem('token');
       } finally {
         if (!isInitialized) {
@@ -161,9 +245,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     loadClerkData();
-  }, [clerkUser, isUserLoaded, profileFetched, getToken, isInitialized]);
+    // ✅ profileFetched removed from deps — prevents the re-render loop
+  }, [clerkUser, isUserLoaded, getToken, isInitialized]);
 
-  // Handle navigation based on auth state
+  // Check phone verification status
+  const checkPhoneVerificationStatus = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      // Check cache first (avoid repeated API calls)
+      const cachedStatus = await AsyncStorage.getItem('phoneVerified');
+      if (cachedStatus === 'true') {
+        console.log('[Auth] Phone verified (cached), going to home');
+        router.replace('/(main)/home');
+        return;
+      }
+
+      // Check with backend
+      const { getApiUrl } = await import('@/constants');
+      const apiUrl = await getApiUrl();
+      
+      const response = await fetch(`${apiUrl}/api/phone/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        if (data.data.hasPhone) {
+          // User has verified phone, cache and go to main app
+          await AsyncStorage.setItem('phoneVerified', 'true');
+          router.replace('/(main)/home');
+        } else {
+          // User needs to verify phone
+          router.replace('/(auth)/phoneVerification');
+        }
+      } else {
+        // Error checking status, default to main app
+        router.replace('/(main)/home');
+      }
+    } catch (error) {
+      console.error('[Auth] Error checking phone status:', error);
+      // On error, default to main app
+      router.replace('/(main)/home');
+    }
+  }, [token, router]);
+
+  // Handle navigation based on auth state and phone verification
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -175,9 +305,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!token && !inAuthGroup) {
       router.replace('/(auth)/welcome');
     } else if (token && inAuthGroup) {
-      router.replace('/(main)/home');
+      // Check if user needs phone verification
+      checkPhoneVerificationStatus();
     }
-  }, [token, segments, isInitialized, router]);
+  }, [token, segments, isInitialized, router, checkPhoneVerificationStatus]);
 
   const updateToken = async (newToken: string) => {
     setToken(newToken);
@@ -207,10 +338,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signOut = async () => {
     console.log('[Auth] Signing out...');
     disconnectSocket();
-    await clerkSignOut();
+    
+    // Sign out from Clerk if user is signed in with Clerk
+    if (clerkUser) {
+      await clerkSignOut();
+    }
+    
     setToken(null);
     setUser(null);
-    setProfileFetched(false); // Reset profile fetched flag
+    profileFetchedRef.current = false;
     await AsyncStorage.removeItem('token');
     router.replace("/(auth)/welcome");
   };
@@ -229,12 +365,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshToken = async (): Promise<string | null> => {
     try {
+      // For JWT tokens (phone OTP), return existing token
+      const storedToken = await AsyncStorage.getItem('token');
+      if (storedToken && !clerkUser) {
+        return storedToken;
+      }
+      
+      // For Clerk tokens, refresh
       if (!clerkUser) return null;
       const freshToken = await getToken({ skipCache: true });
       if (freshToken) {
         setToken(freshToken);
         await AsyncStorage.setItem('token', freshToken);
-        console.log('[Auth] Token refreshed successfully');
+        // ✅ Also update live socket
+        const existingSocket = getSocket();
+        if (existingSocket) {
+          (existingSocket as any).auth = { token: freshToken };
+        }
         return freshToken;
       }
       return null;

@@ -1,19 +1,27 @@
 import { colors, spacingX, spacingY } from "@/constants/theme";
 import { ConversationListItemProps } from "@/types";
-import React from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useState } from "react";
+import { StyleSheet, TouchableOpacity, View, Alert } from "react-native";
 import Avatar from "./Avatar";
 import Typo from "./Typo";
 import { useAuth } from "@/context/authContext";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { StatusRing } from "./StatusRing";
+import { ConversationMenu } from "./ConversationMenu";
+import { Feather } from "@expo/vector-icons";
+import { pinConversation, muteConversation, archiveConversation, deleteConversation } from "@/services/conversationService";
 
 const ConversationItem = ({
   item,
   showDivider,
   router,
+  onUpdate,
 }: ConversationListItemProps) => {
   const { user: currentUser } = useAuth();
   const { isOnline } = useOnlineStatus();
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [isPinned, setIsPinned] = useState(item.isPinned || false);
+  const [isMuted, setIsMuted] = useState(item.isMuted || false);
 
   const openConversation = () => {
     router.push({
@@ -70,18 +78,94 @@ const ConversationItem = ({
   const unreadCount = item.unreadCount || 0;
   const hasUnread = unreadCount > 0;
 
+  // Check if other participant has active stories
+  const hasActiveStory = isDirect && otherParticipant?.stories && otherParticipant.stories.length > 0 &&
+    otherParticipant.stories.some(story => new Date(story.expiresAt) > new Date());
+
+  const handlePin = async () => {
+    const result = await pinConversation(item._id);
+    if (result.success) {
+      setIsPinned(result.isPinned);
+      if (onUpdate) onUpdate();
+    }
+  };
+
+  const handleMute = async () => {
+    const result = await muteConversation(item._id);
+    if (result.success) {
+      setIsMuted(result.isMuted);
+      if (onUpdate) onUpdate();
+    }
+  };
+
+  const handleArchive = async () => {
+    const result = await archiveConversation(item._id);
+    if (result.success) {
+      if (onUpdate) onUpdate();
+    }
+  };
+
+  const handleDelete = async () => {
+    Alert.alert(
+      'Delete Conversation',
+      'Are you sure you want to delete this conversation? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const result = await deleteConversation(item._id);
+            if (result.success && onUpdate) {
+              onUpdate();
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const menuOptions = [
+    {
+      icon: 'bookmark' as const,
+      label: isPinned ? 'Unpin conversation' : 'Pin conversation',
+      onPress: handlePin,
+    },
+    {
+      icon: isMuted ? 'bell' as const : 'bell-off' as const,
+      label: isMuted ? 'Unmute notifications' : 'Mute notifications',
+      onPress: handleMute,
+    },
+    {
+      icon: 'archive' as const,
+      label: 'Archive',
+      onPress: handleArchive,
+    },
+    {
+      icon: 'trash-2' as const,
+      label: 'Delete conversation',
+      onPress: handleDelete,
+      destructive: true,
+    },
+  ];
+
   return (
     <>
       <TouchableOpacity style={styles.container} onPress={openConversation}>
-        {/* Avatar */}
+        {/* Avatar with Status Ring (only if has story) */}
         <View style={styles.avatarWrapper}>
-          <Avatar 
-            uri={avatar} 
-            size={52} 
-            isGroup={item.type === "group"}
-            showOnline={item.type === "direct"}
-            isOnline={online}
-          />
+          <StatusRing
+            size={52}
+            hasStory={hasActiveStory || false}
+          >
+            <Avatar 
+              uri={avatar} 
+              size={52} 
+              isGroup={item.type === "group"}
+              showOnline={item.type === "direct"}
+              isOnline={online}
+            />
+          </StatusRing>
         </View>
 
         {/* Middle: name + last message */}
@@ -104,17 +188,26 @@ const ConversationItem = ({
           </Typo>
         </View>
 
-        {/* Right: time + badge */}
+        {/* Right: time + badge + menu */}
         <View style={styles.right}>
-          {lastMessage && (
-            <Typo 
-              size={11} 
-              color={hasUnread ? colors.primary : colors.neutral400}
-              fontWeight={hasUnread ? "600" : "400"}
+          <View style={styles.rightTop}>
+            {lastMessage && (
+              <Typo 
+                size={11} 
+                color={hasUnread ? colors.primary : colors.neutral400}
+                fontWeight={hasUnread ? "600" : "400"}
+              >
+                {getLastMessageDate()}
+              </Typo>
+            )}
+            <TouchableOpacity
+              onPress={() => setMenuVisible(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.menuButton}
             >
-              {getLastMessageDate()}
-            </Typo>
-          )}
+              <Feather name="more-vertical" size={18} color={colors.neutral500} />
+            </TouchableOpacity>
+          </View>
           {hasUnread && (
             <View style={styles.badge}>
               <Typo size={11} fontWeight="700" color={colors.white}>
@@ -126,6 +219,12 @@ const ConversationItem = ({
       </TouchableOpacity>
 
       {showDivider && <View style={styles.divider} />}
+      
+      <ConversationMenu
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        options={menuOptions}
+      />
     </>
   );
 };
@@ -150,7 +249,15 @@ const styles = StyleSheet.create({
   right: {
     alignItems: "flex-end",
     gap: 6,
-    minWidth: 48,
+    minWidth: 60,
+  },
+  rightTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  menuButton: {
+    padding: 2,
   },
   badge: {
     backgroundColor: colors.primary,

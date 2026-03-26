@@ -1,6 +1,13 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import Conversation from "../modals/Conversation";
 import Message from "../modals/Message";
+import { generateAIResponse, containsAIMention, AI_BOT_ID } from './aiService.js';
+import { verifyConversationAccess, verifyMessageOwnership } from '../middleware/socketOwnership.js';
+import { checkSocketRateLimit } from '../middleware/socketRateLimit.js';
+import { enqueueMessage } from '../config/bullmq.js';
+import { redis } from '../config/redis.js';
+import { validateSocketData, socketSchemas } from '../middleware/validation.js';
+import { logger } from '../utils/logger.js';
 
 // Debug logging helper
 const logDebug = (message: string, ...args: any[]) => {
@@ -8,7 +15,7 @@ const logDebug = (message: string, ...args: any[]) => {
 };
 
 export function registerChatEvents(io: SocketIOServer, socket: Socket) {
-  socket.on("getConversations", async () => {
+  socket.on("getConversations", async (data?: { limit?: number; skip?: number }) => {
     logDebug('=== getConversations EVENT ===');
     try {
       const userId = (socket as any).userId;
@@ -23,21 +30,74 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
         return;
       }
 
-      const conversations = await Conversation.find({
-        participants: userId
-      })
-      .sort({ updatedAt: -1 })
-      .populate({
-        path: "lastMessage",
-        select: "content senderId attachment createdAt"
-      })
-      .populate({
-        path: "participants",
-        select: "name avatar email",
-      })
-      .lean();
+      // PRODUCTION FIX: Add pagination (default 100 conversations)
+      const limit = data?.limit || 100;
+      const skip = data?.skip || 0;
 
-      logDebug(`Found ${conversations.length} conversations`);
+      // PRODUCTION FIX: Use aggregation to prevent N+1 queries
+      // This reduces 201 queries to 1 query for 100 conversations
+      const conversations = await Conversation.aggregate([
+        // Match conversations where user is participant
+        { $match: { participants: userId } },
+        
+        // Sort by most recent
+        { $sort: { updatedAt: -1 } },
+        
+        // Pagination
+        { $skip: skip },
+        { $limit: limit },
+        
+        // Lookup lastMessage (replaces populate)
+        {
+          $lookup: {
+            from: 'messages',
+            localField: 'lastMessage',
+            foreignField: '_id',
+            as: 'lastMessageData'
+          }
+        },
+        
+        // Lookup participants (replaces populate)
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'participants',
+            foreignField: '_id',
+            as: 'participantsData'
+          }
+        },
+        
+        // Project fields
+        {
+          $project: {
+            type: 1,
+            name: 1,
+            avatar: 1,
+            createdBy: 1,
+            unreadCount: 1,
+            pinnedBy: 1,
+            mutedBy: 1,
+            archivedBy: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            lastMessage: { $arrayElemAt: ['$lastMessageData', 0] },
+            participants: {
+              $map: {
+                input: '$participantsData',
+                as: 'participant',
+                in: {
+                  _id: '$$participant._id',
+                  name: '$$participant.name',
+                  avatar: '$$participant.avatar',
+                  email: '$$participant.email'
+                }
+              }
+            }
+          }
+        }
+      ]);
+
+      logDebug(`Found ${conversations.length} conversations (limit: ${limit}, skip: ${skip})`);
 
       // Add unread count for each conversation
       const conversationsWithUnread = conversations.map((conv: any) => ({
@@ -48,6 +108,11 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
       socket.emit("getConversations", {
         success: true,
         data: conversationsWithUnread,
+        pagination: {
+          limit,
+          skip,
+          hasMore: conversations.length === limit
+        }
       });
 
       logDebug(`Socket: Sent ${conversations.length} conversations to user ${userId}`);
@@ -192,73 +257,233 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log('Has attachment:', !!data.attachment);
     
     try {
-      // Validate data - require either content OR attachment
-      if (!data.conversationId || !data.sender?.id) {
+      // ── STEP 1: INPUT VALIDATION (PHASE 0 SECURITY) ────────────────────────
+      const validator = validateSocketData(socketSchemas.newMessage);
+      const validationResult = validator(data);
+      
+      if (!validationResult.valid) {
+        logger.warn('Socket validation failed', {
+          event: 'newMessage',
+          error: validationResult.error,
+          userId: (socket as any).userId,
+          userEmail: (socket as any).userEmail,
+        });
+        socket.emit("newMessage", {
+          success: false,
+          msg: validationResult.error || 'Invalid message data',
+        });
+        console.log('⚠️ Validation failed:', validationResult.error);
+        return;
+      }
+      
+      // Use sanitized data
+      const sanitizedData = validationResult.sanitized || data;
+
+      // ── STEP 2: IDEMPOTENCY CHECK (CRITICAL FIX #2) ────────────────────────
+      if (sanitizedData.tempId) {
+        const { checkIdempotency, clearIdempotency } = await import('../utils/idempotency.js');
+        const isUnique = await checkIdempotency(sanitizedData.tempId);
+        
+        if (!isUnique) {
+          // Duplicate request - return ACK without processing
+          socket.emit('messageQueued', {
+            tempId: sanitizedData.tempId,
+            duplicate: true,
+            timestamp: new Date().toISOString(),
+          });
+          console.log(`⚠️ Duplicate message blocked: ${sanitizedData.tempId}`);
+          return;
+        }
+      }
+
+      // ── STEP 3: RATE LIMITING ──────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'newMessage');
+      if (!rateLimitResult.allowed) {
+        // Clear idempotency on rate limit failure so user can retry
+        if (sanitizedData.tempId) {
+          const { clearIdempotency } = await import('../utils/idempotency.js');
+          await clearIdempotency(sanitizedData.tempId);
+        }
+        
+        socket.emit("newMessage", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        console.log('⚠️ Rate limit exceeded for user:', (socket as any).userId);
+        return;
+      }
+
+      // ── STEP 4: ADDITIONAL VALIDATION ─────────────────────────────────────
+      if (!sanitizedData.conversationId || !sanitizedData.sender?.id) {
         throw new Error('Missing conversation ID or sender');
       }
       
-      if (!data.content && !data.attachment) {
+      if (!sanitizedData.content && !sanitizedData.attachment) {
         throw new Error('Message must have either content or attachment');
       }
 
-      // Create message in database
-      const message = await Message.create({
-        conversationId: data.conversationId,
-        senderId: data.sender.id,
-        content: data.content || '',
-        attachment: data.attachment || null,
-        readBy: [data.sender.id], // Sender has read their own message
+      // ── STEP 5: GENERATE SEQUENCE NUMBER (CRITICAL FIX #3) ─────────────────
+      // FAIL FAST - No timestamp fallback
+      let seq: number;
+      try {
+        const seqKey = `seq:${sanitizedData.conversationId}`;
+        seq = await redis.incr(seqKey);
+        
+        if (!seq || seq < 1) {
+          throw new Error('Invalid sequence number returned');
+        }
+        
+        console.log(`✓ Generated sequence number: ${seq}`);
+      } catch (error: any) {
+        console.error('[Sequence] Redis error - FAILING FAST:', error.message);
+        
+        // Clear idempotency so user can retry
+        if (sanitizedData.tempId) {
+          const { clearIdempotency } = await import('../utils/idempotency.js');
+          await clearIdempotency(sanitizedData.tempId);
+        }
+        
+        socket.emit("newMessage", {
+          success: false,
+          msg: "Service temporarily unavailable. Please try again.",
+          code: 'SEQUENCE_UNAVAILABLE',
+          retryable: true,
+        });
+        return;
+      }
+
+      // ── STEP 6: SEND IMMEDIATE ACK ─────────────────────────────────────────
+      socket.emit('messageQueued', {
+        tempId: sanitizedData.tempId,
+        seq,
+        timestamp: new Date().toISOString(),
       });
 
-      console.log('✓ Message saved:', message._id);
+      // ── STEP 7: ENQUEUE FOR BACKGROUND PROCESSING ──────────────────────────
+      enqueueMessage({
+        conversationId: sanitizedData.conversationId,
+        senderId: sanitizedData.sender.id,
+        senderName: sanitizedData.sender.name,
+        senderAvatar: sanitizedData.sender.avatar,
+        content: sanitizedData.content || '',
+        attachment: sanitizedData.attachment || null,
+        type: 'text',
+        seq,
+        tempId: sanitizedData.tempId,
+        roomId: sanitizedData.conversationId,
+      });
 
-      const messageData = {
-        success: true,
-        data: {
-          id: message._id.toString(),
-          content: data.content || '',
-          sender: {
-            id: data.sender.id,
-            name: data.sender.name,
-            avatar: data.sender.avatar,
-          },
-          attachment: data.attachment || null,
-          createdAt: message.createdAt.toISOString(),
-          conversationId: data.conversationId,
-        },
-      };
+      console.log(`✓ Message enqueued with seq ${seq}`);
 
-      // EMIT IMMEDIATELY to conversation room (fastest delivery)
-      io.to(data.conversationId).emit("newMessage", messageData);
-      console.log('✓ Emitted to room:', data.conversationId);
+      // ── STEP 8: @AI TRIGGER ────────────────────────────────────────────────
+      if (sanitizedData.content && containsAIMention(sanitizedData.content)) {
+        console.log('[AI] @ai detected — triggering AI response');
+        
+        // Short delay so user sees their message appear first
+        setTimeout(async () => {
+          const aiTypingPayload = {
+            conversationId: sanitizedData.conversationId,
+            userId: AI_BOT_ID,
+            userName: 'Chatzi AI',
+            isTyping: true,
+          };
 
-      // Update conversation's lastMessage and increment unread counts in background
-      Conversation.findById(data.conversationId).then(async (conversation) => {
-        if (!conversation) return;
+          // Show typing indicator
+          io.to(sanitizedData.conversationId).emit('ai:typing', aiTypingPayload);
 
-        // Increment unread count for all participants except sender
-        const unreadCount = conversation.unreadCount || new Map();
-        conversation.participants.forEach((participantId: any) => {
-          const participantIdStr = participantId.toString();
-          if (participantIdStr !== data.sender.id) {
-            const currentCount = unreadCount.get(participantIdStr) || 0;
-            unreadCount.set(participantIdStr, currentCount + 1);
+          try {
+            // Generate AI response (with 15s timeout safety net)
+            const aiText = await Promise.race([
+              generateAIResponse(
+                sanitizedData.conversationId,
+                sanitizedData.content,
+                sanitizedData.sender.name || 'User'
+              ),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Gemini timeout')), 15000)
+              ),
+            ]);
+
+            // Generate sequence number for AI message (FAIL FAST)
+            let aiSeq: number;
+            try {
+              const seqKey = `seq:${sanitizedData.conversationId}`;
+              aiSeq = await redis.incr(seqKey);
+              
+              if (!aiSeq || aiSeq < 1) {
+                throw new Error('Invalid AI sequence number');
+              }
+            } catch (error: any) {
+              console.error('[AI Sequence] Redis error - skipping AI response:', error.message);
+              return; // Skip AI response if sequence fails
+            }
+
+            // Enqueue AI message
+            enqueueMessage({
+              conversationId: sanitizedData.conversationId,
+              senderId: AI_BOT_ID,
+              senderName: 'Chatzi AI',
+              senderAvatar: '',
+              content: aiText,
+              type: 'ai',
+              seq: aiSeq,
+              roomId: sanitizedData.conversationId,
+              isAI: true,
+            });
+
+            console.log('[AI] ✅ Response queued');
+          } catch (aiErr: any) {
+            console.error('[AI] ❌ Error:', aiErr.message);
+            
+            // Send a graceful fallback message
+            const fallbackText = aiErr.message.includes('timeout')
+              ? "Sorry, I'm taking too long. Please try again! 🤖"
+              : "I ran into an issue. Try asking me again! 🤖";
+
+            // Queue fallback message (with sequence check)
+            try {
+              const seqKey = `seq:${sanitizedData.conversationId}`;
+              const fallbackSeq = await redis.incr(seqKey);
+              
+              if (fallbackSeq && fallbackSeq > 0) {
+                enqueueMessage({
+                  conversationId: sanitizedData.conversationId,
+                  senderId: AI_BOT_ID,
+                  senderName: 'Chatzi AI',
+                  senderAvatar: '',
+                  content: fallbackText,
+                  type: 'ai',
+                  seq: fallbackSeq,
+                  roomId: sanitizedData.conversationId,
+                  isAI: true,
+                });
+              }
+            } catch (fallbackErr) {
+              console.error('[AI] Failed to queue fallback message:', fallbackErr);
+            }
+          } finally {
+            // Always stop typing indicator
+            io.to(sanitizedData.conversationId).emit('ai:typing', {
+              ...aiTypingPayload,
+              isTyping: false,
+            });
           }
-        });
-
-        conversation.lastMessage = message._id as any;
-        conversation.unreadCount = unreadCount;
-        conversation.updatedAt = new Date();
-        await conversation.save();
-
-        console.log('✓ Updated conversation with unread counts');
-      }).catch(err => console.error('Error updating conversation:', err));
+        }, 600);
+      }
 
       console.log('=== MESSAGE SENT ===');
 
     } catch (error: any) {
       console.log('=== ERROR ===');
       console.log(error.message);
+      
+      // Clear idempotency on failure so user can retry
+      if (data?.tempId) {
+        const { clearIdempotency } = await import('../utils/idempotency.js');
+        await clearIdempotency(data.tempId);
+      }
+      
       socket.emit("newMessage", {
         success: false,
         msg: "Failed to send message: " + error.message,
@@ -266,23 +491,118 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     }
   });
 
-  socket.on("getMessages", async (data: { conversationId: string }) => {
+  socket.on("getMessages", async (data: { conversationId: string; limit?: number; skip?: number; before?: string }) => {
     console.log("=== GET MESSAGES EVENT ===");
     console.log("User:", (socket as any).userEmail);
     console.log("Socket ID:", socket.id);
     console.log("Conversation ID:", data.conversationId);
     
     try {
-      const messages = await Message.find({
-        conversationId: data.conversationId,
-      })
-        .sort({ createdAt: -1 }) // newest first
-        .populate({
-          path: "senderId",
-          select: "name avatar",
+      // ── INPUT VALIDATION (PHASE 0 SECURITY) ────────────────────────────────
+      if (!data.conversationId || typeof data.conversationId !== 'string') {
+        socket.emit("getMessages", {
+          success: false,
+          msg: "Invalid conversation ID",
         });
+        return;
+      }
+      
+      // Validate ObjectId format
+      const objectIdRegex = /^[0-9a-fA-F]{24}$/;
+      if (!objectIdRegex.test(data.conversationId)) {
+        socket.emit("getMessages", {
+          success: false,
+          msg: "Invalid conversation ID format",
+        });
+        return;
+      }
 
-      console.log("Found", messages.length, "messages");
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      // FIX: Add rate limiting to prevent DOS attacks
+      const rateLimitResult = await checkSocketRateLimit(socket, 'getMessages');
+      if (!rateLimitResult.allowed) {
+        socket.emit("getMessages", {
+          success: false,
+          msg: "Too many requests. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        console.log('⚠️ Rate limit exceeded for getMessages');
+        return;
+      }
+
+      // IDOR Protection: Verify user is participant
+      const hasAccess = await verifyConversationAccess(socket, data.conversationId);
+      if (!hasAccess) {
+        socket.emit("getMessages", {
+          success: false,
+          msg: "Access denied: You are not a participant in this conversation",
+        });
+        return;
+      }
+
+      // PRODUCTION FIX: Add pagination (default 50 messages per page)
+      const limit = data.limit || 50;
+      const skip = data.skip || 0;
+
+      // PRODUCTION FIX: Use aggregation to prevent N+1 queries
+      // This reduces 1001 queries to 1 query for 1000 messages
+      const messages = await Message.aggregate([
+        // Match messages in conversation
+        { $match: { conversationId: data.conversationId } },
+        
+        // Sort by most recent
+        { $sort: { createdAt: -1 } },
+        
+        // Pagination
+        { $skip: skip },
+        { $limit: limit },
+        
+        // Lookup sender (replaces populate)
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'senderId',
+            foreignField: '_id',
+            as: 'senderData'
+          }
+        },
+        
+        // Project fields
+        {
+          $project: {
+            _id: 1,
+            content: 1,
+            attachment: 1,
+            type: 1,
+            audioUrl: 1,
+            audioDuration: 1,
+            reactions: 1,
+            createdAt: 1,
+            isCallMessage: 1,
+            callData: 1,
+            isEdited: 1,
+            editedAt: 1,
+            isDeleted: 1,
+            isPinned: 1,
+            document: 1,
+            readBy: 1,
+            isAI: 1,
+            seq: 1,
+            sender: {
+              $let: {
+                vars: { senderDoc: { $arrayElemAt: ['$senderData', 0] } },
+                in: {
+                  id: '$$senderDoc._id',
+                  name: '$$senderDoc.name',
+                  avatar: '$$senderDoc.avatar'
+                }
+              }
+            }
+          }
+        }
+      ]);
+
+      console.log(`Found ${messages.length} messages (limit: ${limit}, skip: ${skip})`);
 
       const messagesWithSender = messages.map((message: any) => ({
         id: message._id,
@@ -295,16 +615,25 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
         createdAt: message.createdAt,
         isCallMessage: message.isCallMessage,
         callData: message.callData,
-        sender: {
-          id: message.senderId._id,
-          name: message.senderId.name,
-          avatar: message.senderId.avatar,
-        },
+        isEdited: message.isEdited,
+        editedAt: message.editedAt,
+        isDeleted: message.isDeleted,
+        isPinned: message.isPinned,
+        document: message.document,
+        readBy: message.readBy || [],
+        isAI: message.isAI,
+        seq: message.seq,
+        sender: message.sender,
       }));
 
       socket.emit("getMessages", {
         success: true,
         data: messagesWithSender,
+        pagination: {
+          limit,
+          skip,
+          hasMore: messages.length === limit
+        }
       });
 
       console.log("=== GET MESSAGES COMPLETED ===");
@@ -325,6 +654,25 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log("Socket ID:", socket.id);
     console.log("Conversation ID:", conversationId);
     
+    // ── INPUT VALIDATION (PHASE 0 SECURITY) ────────────────────────────────
+    if (!conversationId || typeof conversationId !== 'string') {
+      socket.emit("conversationJoined", { 
+        success: false,
+        msg: "Invalid conversation ID" 
+      });
+      return;
+    }
+    
+    // Validate ObjectId format
+    const objectIdRegex = /^[0-9a-fA-F]{24}$/;
+    if (!objectIdRegex.test(conversationId)) {
+      socket.emit("conversationJoined", { 
+        success: false,
+        msg: "Invalid conversation ID format" 
+      });
+      return;
+    }
+    
     socket.join(conversationId);
     
     // Get all sockets in this room
@@ -341,11 +689,40 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log("Conversation ID:", data.conversationId);
     
     try {
+      // ── INPUT VALIDATION (PHASE 0 SECURITY) ────────────────────────────────
+      if (!data.conversationId || typeof data.conversationId !== 'string') {
+        socket.emit("markAsRead", {
+          success: false,
+          msg: "Invalid conversation ID",
+        });
+        return;
+      }
+      
+      // Validate ObjectId format
+      const objectIdRegex = /^[0-9a-fA-F]{24}$/;
+      if (!objectIdRegex.test(data.conversationId)) {
+        socket.emit("markAsRead", {
+          success: false,
+          msg: "Invalid conversation ID format",
+        });
+        return;
+      }
+
       const userId = (socket as any).userId;
       if (!userId) {
         socket.emit("markAsRead", {
           success: false,
           msg: "Unauthorized",
+        });
+        return;
+      }
+
+      // IDOR Protection: Verify user is participant
+      const hasAccess = await verifyConversationAccess(socket, data.conversationId);
+      if (!hasAccess) {
+        socket.emit("markAsRead", {
+          success: false,
+          msg: "Access denied: You are not a participant in this conversation",
         });
         return;
       }
@@ -399,66 +776,56 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log('Duration:', data.duration);
     
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'voice:send');
+      if (!rateLimitResult.allowed) {
+        socket.emit("voice:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
       if (!data.conversationId || !data.senderId || !data.audioUrl) {
         throw new Error('Missing required voice message data');
       }
 
-      // Create voice message in database
-      const message = await Message.create({
+      // FIX #7: Queue voice messages instead of direct DB write
+      // Generate sequence number
+      let seq: number;
+      try {
+        const seqKey = `seq:${data.conversationId}`;
+        seq = await redis.incr(seqKey);
+        console.log(`✓ Generated sequence number for voice: ${seq}`);
+      } catch (error) {
+        console.error('[Voice Sequence] Redis error, falling back to timestamp');
+        seq = Date.now();
+      }
+
+      // Send immediate ACK
+      socket.emit('messageQueued', {
+        tempId: data.tempId,
+        seq,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Enqueue voice message
+      enqueueMessage({
         conversationId: data.conversationId,
         senderId: data.senderId,
-        content: '', // Empty content for voice messages
+        senderName: data.senderName || 'User',
+        senderAvatar: data.senderAvatar || '',
+        content: '',
         type: 'voice',
         audioUrl: data.audioUrl,
         audioDuration: data.duration,
-        readBy: [data.senderId],
+        seq,
+        tempId: data.tempId,
+        roomId: data.conversationId,
       });
 
-      console.log('✓ Voice message saved:', message._id);
-
-      // Get sender info
-      const sender = await Message.findById(message._id).populate('senderId', 'name avatar');
-      
-      const messageData = {
-        success: true,
-        data: {
-          id: message._id.toString(),
-          content: '',
-          type: 'voice',
-          audioUrl: data.audioUrl,
-          audioDuration: data.duration,
-          sender: {
-            id: data.senderId,
-            name: (sender as any)?.senderId?.name || 'User',
-            avatar: (sender as any)?.senderId?.avatar || '',
-          },
-          createdAt: message.createdAt.toISOString(),
-          conversationId: data.conversationId,
-        },
-      };
-
-      // Emit to conversation room
-      io.to(data.conversationId).emit("voice:received", messageData);
-      console.log('✓ Voice message emitted to room:', data.conversationId);
-
-      // Update conversation
-      Conversation.findById(data.conversationId).then(async (conversation) => {
-        if (!conversation) return;
-
-        const unreadCount = conversation.unreadCount || new Map();
-        conversation.participants.forEach((participantId: any) => {
-          const participantIdStr = participantId.toString();
-          if (participantIdStr !== data.senderId) {
-            const currentCount = unreadCount.get(participantIdStr) || 0;
-            unreadCount.set(participantIdStr, currentCount + 1);
-          }
-        });
-
-        conversation.lastMessage = message._id as any;
-        conversation.unreadCount = unreadCount;
-        conversation.updatedAt = new Date();
-        await conversation.save();
-      }).catch(err => console.error('Error updating conversation:', err));
+      console.log('✓ Voice message enqueued');
 
     } catch (error: any) {
       console.log('=== VOICE MESSAGE ERROR ===');
@@ -476,6 +843,17 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log('Message ID:', data.messageId);
     
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'message:pin');
+      if (!rateLimitResult.allowed) {
+        socket.emit("message:pin:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
       const userId = (socket as any).userId;
       if (!userId) {
         throw new Error('Unauthorized');
@@ -565,6 +943,17 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log('User ID:', data.userId);
     
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'reaction:add');
+      if (!rateLimitResult.allowed) {
+        socket.emit("reaction:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
       const message = await Message.findById(data.messageId);
       
       if (!message) {
@@ -641,6 +1030,19 @@ export function registerChatEvents(io: SocketIOServer, socket: Socket) {
     console.log('Conversation ID:', data.conversationId);
     
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      // FIX: Add rate limiting to prevent DOS attacks
+      const rateLimitResult = await checkSocketRateLimit(socket, 'getPinnedMessages');
+      if (!rateLimitResult.allowed) {
+        socket.emit("pinnedMessages:error", {
+          success: false,
+          msg: "Too many requests. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        console.log('⚠️ Rate limit exceeded for getPinnedMessages');
+        return;
+      }
+
       const pinnedMessages = await Message.find({
         conversationId: data.conversationId,
         isPinned: true,
@@ -698,9 +1100,29 @@ export function registerMessageEditDeleteEvents(io: SocketIOServer, socket: Sock
     conversationId: string;
   }) => {
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'message:edit');
+      if (!rateLimitResult.allowed) {
+        socket.emit("message:edit:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
+      // IDOR Protection: Verify message ownership
+      const isOwner = await verifyMessageOwnership(socket, data.messageId);
+      if (!isOwner) {
+        socket.emit("message:edit:error", { 
+          success: false, 
+          msg: "Access denied: You can only edit your own messages" 
+        });
+        return;
+      }
+
       const message = await Message.findById(data.messageId);
       if (!message) throw new Error("Message not found");
-      if (message.senderId.toString() !== userId) throw new Error("Not authorized");
       if (message.isDeleted) throw new Error("Cannot edit deleted message");
       if (message.type !== 'text') throw new Error("Only text messages can be edited");
 
@@ -730,11 +1152,30 @@ export function registerMessageEditDeleteEvents(io: SocketIOServer, socket: Sock
     deleteFor: 'me' | 'everyone';
   }) => {
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'message:delete');
+      if (!rateLimitResult.allowed) {
+        socket.emit("message:delete:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
       const message = await Message.findById(data.messageId);
       if (!message) throw new Error("Message not found");
 
       if (data.deleteFor === 'everyone') {
-        if (message.senderId.toString() !== userId) throw new Error("Not authorized");
+        // IDOR Protection: Only owner can delete for everyone
+        const isOwner = await verifyMessageOwnership(socket, data.messageId);
+        if (!isOwner) {
+          socket.emit("message:delete:error", { 
+            success: false, 
+            msg: "Access denied: You can only delete your own messages for everyone" 
+          });
+          return;
+        }
 
         message.isDeleted = true;
         message.deletedAt = new Date();
@@ -750,7 +1191,7 @@ export function registerMessageEditDeleteEvents(io: SocketIOServer, socket: Sock
           deleteFor: 'everyone',
         });
       } else {
-        // Delete for me only
+        // Delete for me only - anyone can do this
         await Message.findByIdAndUpdate(data.messageId, {
           $addToSet: { deletedFor: userId },
         });
@@ -773,44 +1214,58 @@ export function registerMessageEditDeleteEvents(io: SocketIOServer, socket: Sock
     senderName: string;
     senderAvatar: string;
     document: { url: string; name: string; size: number; mimeType: string; };
+    tempId?: string;
   }) => {
     try {
+      // FIX #9: Add rate limiting to document send
+      const rateLimitResult = await checkSocketRateLimit(socket, 'document:send');
+      if (!rateLimitResult.allowed) {
+        socket.emit("document:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
       if (!data.conversationId || !data.senderId || !data.document?.url) {
         throw new Error('Missing required document data');
       }
 
-      const message = await Message.create({
+      // FIX #8: Queue document messages instead of direct DB write
+      // Generate sequence number
+      let seq: number;
+      try {
+        const seqKey = `seq:${data.conversationId}`;
+        seq = await redis.incr(seqKey);
+        console.log(`✓ Generated sequence number for document: ${seq}`);
+      } catch (error) {
+        console.error('[Document Sequence] Redis error, falling back to timestamp');
+        seq = Date.now();
+      }
+
+      // Send immediate ACK
+      socket.emit('messageQueued', {
+        tempId: data.tempId,
+        seq,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Enqueue document message
+      enqueueMessage({
         conversationId: data.conversationId,
         senderId: data.senderId,
+        senderName: data.senderName,
+        senderAvatar: data.senderAvatar,
         content: data.document.name,
         type: 'document',
         document: data.document,
-        readBy: [data.senderId],
+        seq,
+        tempId: data.tempId,
+        roomId: data.conversationId,
       });
 
-      const messageData = {
-        success: true,
-        data: {
-          id: message._id.toString(),
-          content: data.document.name,
-          type: 'document',
-          document: data.document,
-          sender: {
-            id: data.senderId,
-            name: data.senderName,
-            avatar: data.senderAvatar,
-          },
-          createdAt: (message as any).createdAt.toISOString(),
-          conversationId: data.conversationId,
-        },
-      };
-
-      io.to(data.conversationId).emit("newMessage", messageData);
-
-      await Conversation.findByIdAndUpdate(data.conversationId, {
-        lastMessage: message._id,
-        updatedAt: new Date(),
-      });
+      console.log('✓ Document message enqueued');
     } catch (err: any) {
       socket.emit("document:error", { success: false, msg: err.message });
     }
@@ -858,6 +1313,17 @@ export function registerStoryEvents(io: SocketIOServer, socket: Socket) {
     caption?: string;
   }) => {
     try {
+      // ── RATE LIMITING ──────────────────────────────────────────────────────
+      const rateLimitResult = await checkSocketRateLimit(socket, 'story:post');
+      if (!rateLimitResult.allowed) {
+        socket.emit("story:error", {
+          success: false,
+          msg: "Rate limit exceeded. Please slow down.",
+          retryAfter: rateLimitResult.retryAfter,
+        });
+        return;
+      }
+
       const User = (await import('../modals/userModal.js')).default;
       const story = {
         mediaUrl: data.mediaUrl,

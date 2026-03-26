@@ -13,10 +13,8 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
   try {
     // Try to verify as Clerk token first
     try {
-      // Verify the Clerk session token
-      const payload = await clerkClient.verifyToken(token, {
-        secretKey: process.env.CLERK_SECRET_KEY
-      });
+      // Verify the Clerk session token - simplified approach
+      const payload = await clerkClient.verifyToken(token);
       
       if (payload && payload.sub) {
         // Get user from Clerk

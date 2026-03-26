@@ -76,5 +76,5 @@ export function useMessageWatcher(conversations: ConversationProps[]) {
     if (permissionGranted) {
       runPipeline(conversations);
     }
-  }, [permissionGranted]);
+  }, [permissionGranted, conversations, runPipeline]);
 }

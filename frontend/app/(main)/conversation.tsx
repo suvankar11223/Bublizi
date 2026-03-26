@@ -34,6 +34,9 @@ import { EmojiReactionPicker } from "@/components/chat/EmojiReactionPicker";
 import { ReactionBubble } from "@/components/chat/ReactionBubble";
 import { audioService } from "@/services/audioService";
 import { MessageType } from "@/types";
+import { useAIChat } from '@/hooks/useAIChat';
+import { AITypingIndicator } from '@/components/chat/AITypingIndicator';
+import { AIMessageBubble } from '@/components/chat/AIMessageBubble';
 
 const Conversation = () => {
   const { user: currentUser } = useAuth();
@@ -58,6 +61,8 @@ const Conversation = () => {
     avatar,
     type,
   } = useLocalSearchParams();
+
+  const { isAITyping, insertAIMention } = useAIChat(conversationId as string);
 
   const participants = JSON.parse(stringifiedParticipants as string);
 
@@ -92,22 +97,37 @@ const Conversation = () => {
       return;
     }
 
+    console.log('[Conversation] ========== START CALL ==========');
+    console.log('[Conversation] Current user ID:', currentUser?.id);
+    console.log('[Conversation] Current user name:', currentUser?.name);
+    console.log('[Conversation] Other user ID:', otherUserId);
+    console.log('[Conversation] Call type:', callType);
+    console.log('[Conversation] Conversation ID:', conversationId);
+
     const socket = getSocket();
     if (!socket || !socket.connected) {
+      console.error('[Conversation] Socket not connected');
       Alert.alert('Error', 'Not connected to server');
       return;
     }
 
-    const roomId = `chatzi-${conversationId}-${Date.now()}`;
+    console.log('[Conversation] Socket connected, socket ID:', socket.id);
 
-    socket.emit('initiateCall', {
+    const roomId = `chatzi-${conversationId}-${Date.now()}`;
+    console.log('[Conversation] Generated room ID:', roomId);
+
+    const callData = {
       receiverId: String(otherUserId),
       callType,
       conversationId: String(conversationId),
       callerName: currentUser?.name || 'Unknown',
       callerAvatar: currentUser?.avatar || '',
       roomId,
-    });
+    };
+
+    console.log('[Conversation] Emitting initiateCall with data:', JSON.stringify(callData, null, 2));
+
+    socket.emit('initiateCall', callData);
 
     socket.once('callInitiated', ({ callId }: any) => {
       router.push({
@@ -271,6 +291,7 @@ const Conversation = () => {
           audioDuration: m.audioDuration,
           createdAt: m.createdAt,
           isMe: m.sender.id === currentUser.id,
+          isAI: m.isAI || m.sender?.name === 'Chatzi AI',
           isCallMessage: m.isCallMessage,
           callData: m.callData,
           reactions: m.reactions || [],
@@ -291,6 +312,7 @@ const Conversation = () => {
           audioDuration: data.data.audioDuration,
           createdAt: data.data.createdAt,
           isMe: data.data.sender.id === currentUser.id,
+          isAI: data.data.isAI || data.data.sender?.name === 'Chatzi AI',
           isCallMessage: data.data.isCallMessage,
           callData: data.data.callData,
           reactions: data.data.reactions || [],
@@ -481,6 +503,8 @@ const Conversation = () => {
             isAdmin={true}
           />
 
+          <AITypingIndicator visible={isAITyping} />
+
           <FlatList
             data={messages}
             inverted={true}
@@ -489,6 +513,8 @@ const Conversation = () => {
             renderItem={({ item }) => (
               <Pressable
                 onLongPress={(e) => {
+                  // Don't allow reactions on AI messages
+                  if (item.isAI) return;
                   setReactionPicker({
                     visible: true,
                     messageId: item.id,
@@ -496,7 +522,12 @@ const Conversation = () => {
                   });
                 }}
               >
-                {item.type === 'voice' ? (
+                {item.isAI ? (
+                  <AIMessageBubble
+                    content={item.content}
+                    createdAt={item.createdAt}
+                  />
+                ) : item.type === 'voice' ? (
                   <VoiceMessageBubble
                     audioUrl={item.audioUrl!}
                     duration={item.audioDuration!}
@@ -506,21 +537,23 @@ const Conversation = () => {
                   <MessageItem item={item} isDirect={isDirect} />
                 )}
 
-                <ReactionBubble
-                  reactions={item.reactions || []}
-                  currentUserId={currentUser?.id || ''}
-                  onReact={(emoji) => {
-                    const socket = getSocket();
-                    if (socket) {
-                      socket.emit('reaction:add', {
-                        messageId: item.id,
-                        emoji,
-                        conversationId,
-                        userId: currentUser?.id,
-                      });
-                    }
-                  }}
-                />
+                {!item.isAI && (
+                  <ReactionBubble
+                    reactions={item.reactions || []}
+                    currentUserId={currentUser?.id || ''}
+                    onReact={(emoji) => {
+                      const socket = getSocket();
+                      if (socket) {
+                        socket.emit('reaction:add', {
+                          messageId: item.id,
+                          emoji,
+                          conversationId,
+                          userId: currentUser?.id,
+                        });
+                      }
+                    }}
+                  />
+                )}
               </Pressable>
             )}
             keyExtractor={(item) => item.id}
@@ -561,6 +594,23 @@ const Conversation = () => {
                     </TouchableOpacity>
                   }
                 />
+
+                <TouchableOpacity
+                  onPress={() => setMessage(prev => insertAIMention(prev))}
+                  style={{
+                    backgroundColor: 'rgba(99,102,241,0.12)',
+                    borderRadius: 16,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderWidth: 1,
+                    borderColor: 'rgba(99,102,241,0.25)',
+                    marginRight: 8,
+                  }}
+                >
+                  <Typo style={{ color: '#6366f1', fontWeight: '700', fontSize: 12 }}>
+                    @ai
+                  </Typo>
+                </TouchableOpacity>
 
                 <View style={styles.inputRightIcon}>
                   <TouchableOpacity style={styles.inputIcon} onPress={onSend}>

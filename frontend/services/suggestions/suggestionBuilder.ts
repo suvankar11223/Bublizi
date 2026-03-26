@@ -14,7 +14,6 @@ const PRIORITY_COLORS: Record<string, string> = {
 export function buildSuggestionCard(cluster: LinkedCluster): SuggestionCard | null {
   if (cluster.intents.length === 0) return null;
 
-  const primaryIntent = cluster.intents[0];
   const uniqueChats = getUniqueChats(cluster);
   const content = buildContent(cluster, uniqueChats);
   
@@ -41,7 +40,7 @@ export function buildSuggestionCard(cluster: LinkedCluster): SuggestionCard | nu
 
 function buildContent(
   cluster: LinkedCluster,
-  uniqueChats: Array<{ id: string; name: string }>
+  uniqueChats: { id: string; name: string }[]
 ): Pick<SuggestionCard, 'headline' | 'subheadline' | 'bodyText' | 'emoji'> | null {
   const chatNames = uniqueChats.map(c => c.name).join(', ');
   const dates = cluster.sharedEntities.dates?.[0] || '';
@@ -112,7 +111,7 @@ function buildContent(
 
 function buildActions(
   cluster: LinkedCluster,
-  uniqueChats: Array<{ id: string; name: string }>
+  uniqueChats: { id: string; name: string }[]
 ): SuggestionAction[] {
   const actions: SuggestionAction[] = [];
   const primaryChatId = cluster.intents[0]?.sourceChatId;
@@ -160,9 +159,9 @@ function buildActions(
   return actions;
 }
 
-function getUniqueChats(cluster: LinkedCluster): Array<{ id: string; name: string }> {
+function getUniqueChats(cluster: LinkedCluster): { id: string; name: string }[] {
   const seen = new Set<string>();
-  const result: Array<{ id: string; name: string }> = [];
+  const result: { id: string; name: string }[] = [];
 
   for (const intent of cluster.intents) {
     if (!seen.has(intent.sourceChatId)) {

@@ -111,6 +111,7 @@ export type ConversationListItemProps = {
   showDivider: boolean;
   isGroup?: boolean;
   router: Router;
+  onUpdate?: () => void;
 };
 
 export type ConversationProps = {
@@ -122,6 +123,15 @@ export type ConversationProps = {
     name: string;
     avatar: string;
     email: string;
+    stories?: {
+      _id: string;
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      caption?: string;
+      viewers: string[];
+      expiresAt: string;
+      createdAt: string;
+    }[];
   }[];
   name?: string;
   lastMessage?: {
@@ -135,6 +145,10 @@ export type ConversationProps = {
   unreadCount?: number;
   createdAt: string;
   updatedAt: string;
+  // User-specific metadata
+  isPinned?: boolean;
+  isMuted?: boolean;
+  isArchived?: boolean;
 };
 
 export type MessageProps = {
@@ -162,6 +176,7 @@ export type MessageProps = {
     count: number;
     users: string[];
   }[];
+  isAI?: boolean;
 };
 
 // Alias for MessageType (used in Conversation screen)

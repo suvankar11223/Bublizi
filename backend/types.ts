@@ -17,6 +17,9 @@ export interface ConversationProps extends Document {
   createdBy?: Types.ObjectId;
   avatar?: string;
   unreadCount?: Map<string, number>;
+  pinnedBy?: Map<string, Date>;
+  mutedBy?: Map<string, Date>;
+  archivedBy?: Map<string, Date>;
   createdAt: Date;
   updatedAt: Date;
 }

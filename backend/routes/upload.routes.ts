@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
+import { validateFileUpload } from '../middleware/validation.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ console.log('[Upload] Cloudinary config:', {
 });
 
 // Upload voice message
-router.post('/voice', upload.single('audio'), async (req, res) => {
+router.post('/voice', upload.single('audio'), validateFileUpload, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, msg: 'No audio file provided' });

@@ -20,6 +20,8 @@ import { PermissionGate } from '@/components/suggestions/PermissionGate';
 import { useMessageWatcher } from '@/hooks/suggestions/useMessageWatcher';
 import { useSuggestions } from '@/hooks/suggestions/useSuggestions';
 import { useSuggestionStore } from '@/services/suggestions/suggestionStore';
+import { SwipeableConversationItem } from '@/components/SwipeableConversationItem';
+import { StatusRing } from '@/components/StatusRing';
 
 const Home = () => {
   const router = useRouter();
@@ -73,13 +75,14 @@ const Home = () => {
     // Step 1: Load cached data INSTANTLY (no waiting)
     loadCachedData();
     
-    // Step 2: Fetch fresh data in background (wait for user to be loaded)
-    if (user) {
-      fetchFreshData();
-    }
-    
-    // Step 3: Setup socket for real-time updates
+    // Step 2: Setup socket for real-time updates IMMEDIATELY
     setupSocketListeners();
+    
+    // Step 3: Fetch fresh data in background (non-blocking)
+    if (user) {
+      // Don't wait - fire and forget
+      fetchFreshData().catch(err => console.log('[DEBUG] Background fetch error:', err));
+    }
 
     return () => {
       clearTimeout(timer);
@@ -120,27 +123,39 @@ const Home = () => {
         return;
       }
 
-      const { fetchContactsFromAPI, fetchConversationsFromAPI } = await import('@/services/contactsService');
-      
-      // Fetch contacts FIRST (priority) then conversations
-      console.log('[DEBUG] Home: Fetching contacts from API...');
-      const apiContacts = await fetchContactsFromAPI(token, 1);
-      
-      if (apiContacts && apiContacts.length > 0) {
-        console.log('[DEBUG] Home: Got', apiContacts.length, 'contacts from API');
-        setContacts(apiContacts);
-      }
-      
-      // Then fetch conversations
-      console.log('[DEBUG] Home: Fetching conversations from API...');
-      const apiConversations = await fetchConversationsFromAPI(token);
-      
-      if (apiConversations && apiConversations.length > 0) {
-        console.log('[DEBUG] Home: Got', apiConversations.length, 'conversations from API');
-        setConversations(apiConversations);
-      }
+      // Fire both requests in parallel - don't wait
+      Promise.all([
+        (async () => {
+          try {
+            const { fetchContactsFromAPI } = await import('@/services/contactsService');
+            console.log('[DEBUG] Home: Fetching contacts from API...');
+            const apiContacts = await fetchContactsFromAPI(token);
+            
+            if (apiContacts && apiContacts.length > 0) {
+              console.log('[DEBUG] Home: Got', apiContacts.length, 'contacts from API');
+              setContacts(apiContacts);
+            }
+          } catch (err) {
+            console.log('[DEBUG] Home: Contacts fetch error:', err);
+          }
+        })(),
+        (async () => {
+          try {
+            const { fetchConversationsFromAPI } = await import('@/services/contactsService');
+            console.log('[DEBUG] Home: Fetching conversations from API...');
+            const apiConversations = await fetchConversationsFromAPI(token);
+            
+            if (apiConversations && apiConversations.length > 0) {
+              console.log('[DEBUG] Home: Got', apiConversations.length, 'conversations from API');
+              setConversations(apiConversations);
+            }
+          } catch (err) {
+            console.log('[DEBUG] Home: Conversations fetch error:', err);
+          }
+        })(),
+      ]).catch(err => console.log('[DEBUG] Home: Parallel fetch error:', err));
     } catch (error) {
-      console.log('[DEBUG] Home: Error fetching fresh data:', error);
+      console.log('[DEBUG] Home: Error in fetchFreshData:', error);
     }
   };
 
@@ -621,18 +636,51 @@ const Home = () => {
         }
         renderItem={({ item, index }) => {
           if (selectedTab === 'direct') {
-            // Check if this item is a conversation (has participants array from DB)
             if (item.participants && Array.isArray(item.participants)) {
-              // It's a conversation - show with ConversationItem
               return (
-                <ConversationItem
-                  item={item}
-                  router={router}
-                  showDivider={index < listData.length - 1}
-                />
+                <SwipeableConversationItem
+                  onMute={async () => {
+                    const { muteConversation } = await import('@/services/conversationService');
+                    const result = await muteConversation(item._id);
+                    if (result.success) {
+                      refreshConversations();
+                    }
+                  }}
+                  onDelete={async () => {
+                    Alert.alert(
+                      'Delete Conversation',
+                      'Are you sure you want to delete this conversation?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: async () => {
+                            const { deleteConversation } = await import('@/services/conversationService');
+                            const result = await deleteConversation(item._id);
+                            if (result.success) {
+                              refreshConversations();
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                  isMuted={item.isMuted}
+                >
+                  <ConversationItem
+                    item={item}
+                    router={router}
+                    showDivider={index < listData.length - 1}
+                    onUpdate={refreshConversations}
+                  />
+                </SwipeableConversationItem>
               );
             } else {
-              // It's a plain contact (no conversation yet)
+              // Plain contact - check for stories
+              const hasActiveStory = item.stories && item.stories.length > 0 &&
+                item.stories.some((story: any) => new Date(story.expiresAt) > new Date());
+
               return (
                 <TouchableOpacity
                   style={styles.userItem}
@@ -642,12 +690,17 @@ const Home = () => {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Avatar 
-                    size={52} 
-                    uri={item.avatar}
-                    showOnline={true}
-                    isOnline={isOnline(item._id)}
-                  />
+                  <StatusRing
+                    size={52}
+                    hasStory={hasActiveStory || false}
+                  >
+                    <Avatar 
+                      size={52} 
+                      uri={item.avatar}
+                      showOnline={true}
+                      isOnline={isOnline(item._id)}
+                    />
+                  </StatusRing>
                   <View style={styles.userInfo}>
                     <Typo size={16} fontWeight="600" color={colors.neutral900}>
                       {item.name || item.email || 'Unknown User'}
@@ -660,13 +713,44 @@ const Home = () => {
               );
             }
           } else {
-            // Group conversation
             return (
-              <ConversationItem
-                item={item}
-                router={router}
-                showDivider={index < listData.length - 1}
-              />
+              <SwipeableConversationItem
+                onMute={async () => {
+                  const { muteConversation } = await import('@/services/conversationService');
+                  const result = await muteConversation(item._id);
+                  if (result.success) {
+                    refreshConversations();
+                  }
+                }}
+                onDelete={async () => {
+                  Alert.alert(
+                    'Delete Group',
+                    'Are you sure you want to leave this group?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Leave',
+                        style: 'destructive',
+                        onPress: async () => {
+                          const { deleteConversation } = await import('@/services/conversationService');
+                          const result = await deleteConversation(item._id);
+                          if (result.success) {
+                            refreshConversations();
+                          }
+                        },
+                      },
+                    ]
+                  );
+                }}
+                isMuted={item.isMuted}
+              >
+                <ConversationItem
+                  item={item}
+                  router={router}
+                  showDivider={index < listData.length - 1}
+                  onUpdate={refreshConversations}
+                />
+              </SwipeableConversationItem>
             );
           }
         }}

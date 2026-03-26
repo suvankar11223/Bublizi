@@ -19,7 +19,7 @@ const Welcome = () => {
       duration: 700,
       useNativeDriver: true,
     }).start()
-  }, [])
+  }, [fadeAnim])
 
   return (
     <ScreenWrapper showPattern={true}>

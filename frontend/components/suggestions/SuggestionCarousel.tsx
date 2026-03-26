@@ -1,11 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, FlatList, StyleSheet, Animated, ActivityIndicator, Dimensions } from 'react-native';
+import { View, FlatList, StyleSheet, Animated, ActivityIndicator } from 'react-native';
 import { SuggestionCard as SuggestionCardType, SuggestionAction } from '../../types/suggestions';
 import { SuggestionCard, CARD_WIDTH } from './SuggestionCard';
 import { colors, spacingX, spacingY } from '../../constants/theme';
 import Typo from '../Typo';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_SPACING = 12;
 
 interface SuggestionCarouselProps {
@@ -35,7 +34,7 @@ export const SuggestionCarousel: React.FC<SuggestionCarouselProps> = ({
         delay: 100,
       }).start();
     }
-  }, [suggestions.length]);
+  }, [suggestions.length, mountAnim]);
 
   useEffect(() => {
     if (isProcessing) {
@@ -48,7 +47,7 @@ export const SuggestionCarousel: React.FC<SuggestionCarouselProps> = ({
     } else {
       pulseAnim.setValue(1);
     }
-  }, [isProcessing]);
+  }, [isProcessing, pulseAnim]);
 
   const handleScroll = (event: any) => {
     const offsetX = event.nativeEvent.contentOffset.x;

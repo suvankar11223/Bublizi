@@ -1,15 +1,44 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import Message from '../modals/Message.js';
 import Conversation from '../modals/Conversation.js';
+import Call from '../modals/Call.js';
 
 // Track rooms and their ready state
 const readyRooms = new Map<string, NodeJS.Timeout>();
 
 export function registerWebRTCEvents(io: SocketIOServer, socket: Socket) {
   // Join a call room (both caller and receiver join same roomId)
-  socket.on('joinCallRoom', ({ roomId, userId }) => {
+  socket.on('joinCallRoom', async ({ roomId, userId }) => {
+    // 🔒 SECURITY FIX: Verify user is authorized to join this call
+    const socketUserId = (socket as any).userId;
+    
+    if (!socketUserId) {
+      socket.emit('callFailed', { reason: 'Unauthorized: Not authenticated' });
+      return;
+    }
+    
+    // Verify the call exists and user is a participant
+    const call = await Call.findOne({ agoraChannel: roomId });
+    
+    if (!call) {
+      socket.emit('callFailed', { reason: 'Invalid room: Call not found' });
+      console.log(`[WebRTC] ❌ Invalid room attempt: ${roomId} by user ${socketUserId}`);
+      return;
+    }
+    
+    // Check if user is either caller or receiver
+    const isParticipant = 
+      socketUserId === call.callerId.toString() || 
+      socketUserId === call.receiverId.toString();
+    
+    if (!isParticipant) {
+      socket.emit('callFailed', { reason: 'Unauthorized: Not a call participant' });
+      console.log(`[WebRTC] ❌ Unauthorized join attempt: ${roomId} by user ${socketUserId}`);
+      return;
+    }
+    
     socket.join(roomId);
-    console.log(`[WebRTC] ${userId} joined room ${roomId}`);
+    console.log(`[WebRTC] ✅ ${userId} joined room ${roomId} (authorized)`);
 
     // Cancel any existing timeout for this room
     if (readyRooms.has(roomId)) {
@@ -168,5 +197,21 @@ export function registerWebRTCEvents(io: SocketIOServer, socket: Socket) {
     
     io.to(roomId).emit('callEnded');
     socket.leave(roomId);
+  });
+
+  // PHASE 1 FIX: Clean up timeouts on disconnect to prevent memory leaks
+  socket.on('disconnect', () => {
+    console.log(`[WebRTC] Socket disconnected: ${socket.id}`);
+    
+    // Clean up any pending call room timeouts
+    for (const [roomId, timeout] of readyRooms.entries()) {
+      const room = io.sockets.adapter.rooms.get(roomId);
+      // If room is empty or doesn't exist, clear the timeout
+      if (!room || room.size === 0) {
+        console.log(`[WebRTC] Clearing timeout for empty room: ${roomId}`);
+        clearTimeout(timeout);
+        readyRooms.delete(roomId);
+      }
+    }
   });
 }

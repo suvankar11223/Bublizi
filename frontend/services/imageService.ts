@@ -10,12 +10,12 @@ export const getAvatarPath = (file: any, isGroup = false) => {
   // If file is already an object with uri property
   if (file && typeof file === 'object') return file;
 
-  // Return default avatars - using the correct paths from @/images/
+  // Return default avatars - using remote URLs to avoid build issues
   if (isGroup) {
-    return require('@/images/defaultGroupAvatar.png');
+    return { uri: 'https://ui-avatars.com/api/?name=Group&size=200&background=6366f1&color=fff' };
   }
 
-  return require('@/images/defaultAvatar.png');
+  return { uri: 'https://ui-avatars.com/api/?name=User&size=200&background=94a3b8&color=fff' };
 };
 
 export const uploadImageToCloudinary = async (imageUri: string): Promise<string> => {

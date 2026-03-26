@@ -1,11 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { io, Socket } from "socket.io-client";
-import { getLocalIP } from "@/utils/network";
 
 let socket: Socket | null = null;
 let connectionPromise: Promise<Socket> | null = null;
 let reconnectAttempts = 0;
-let maxReconnectAttempts = 10;
 let isConnecting = false;
 
 // Debug logging helper
@@ -36,7 +34,7 @@ const getSocketURL = async (): Promise<string> => {
     
     logDebug('Socket URL resolved:', socketUrl);
     return socketUrl;
-  } catch (error) {
+  } catch {
     logDebug('Failed to get socket URL, using fallback');
     return "https://chatzi-1m0m.onrender.com";
   }
@@ -94,12 +92,11 @@ export const connectSocket = async (): Promise<Socket> => {
     logDebug('Socket connected successfully', socket?.id);
     isConnecting = false;
     reconnectAttempts = 0;
-    lastConnectedTime = Date.now();
     connectionPromise = null;
   });
 
-  socket.on("connect_error", (error) => {
-    logDebug('Socket connection error:', error.message);
+  socket.on("connect_error", () => {
+    logDebug('Socket connection error');
     isConnecting = false;
     reconnectAttempts++;
   });
@@ -159,8 +156,6 @@ export const connectSocket = async (): Promise<Socket> => {
 
   return connectionPromise;
 };
-
-let lastConnectedTime = 0;
 
 /**
  * Disconnect from socket server
@@ -257,7 +252,7 @@ export const reconnectSocket = async (): Promise<Socket | null> => {
   reconnectAttempts = 0;
   try {
     return await connectSocket();
-  } catch (error) {
+  } catch {
     return null;
   }
 };

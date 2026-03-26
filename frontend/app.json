@@ -2,6 +2,7 @@
   "expo": {
     "name": "Bublizi",
     "slug": "bublizi",
+    "owner": "rakuaggh",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -59,12 +60,15 @@
         }
       ],
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "expo-build-properties"
     ],
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "ee411388-aaac-48fc-bfe0-b313a02ed77b"
+        "projectId": "19ca715c-d21a-471b-b63f-a88b317f3119"
       }
     }
   }
