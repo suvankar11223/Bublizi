@@ -5,667 +5,291 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Bublizi — README</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f9f9f8; --surface: #ffffff; --border: #e8e8e6;
+  --text: #1a1a18; --muted: #7a7a75;
+  --green: #1a7a4a; --green-bg: #f0faf4;
+  --mono: 'DM Mono', monospace;
+}
+body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.7; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+.page { max-width: 820px; margin: 0 auto; padding: 0 2rem; }
 
-  :root {
-    --bg:       #080b10;
-    --bg2:      #0e1420;
-    --bg3:      #141c2b;
-    --amber:    #f5a623;
-    --amber2:   #e8860a;
-    --teal:     #1de9b6;
-    --muted:    #4a5568;
-    --text:     #c9d1e0;
-    --white:    #f0f4ff;
-    --red:      #ff4f4f;
-    --green:    #35d67a;
-    --border:   rgba(245,166,35,0.15);
-    --border2:  rgba(255,255,255,0.06);
-  }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 1.5rem 0; border-bottom: 1px solid var(--border); margin-bottom: 3.5rem; }
+.topbar-left { display: flex; align-items: center; gap: 10px; }
+.logo { font-size: 15px; font-weight: 500; letter-spacing: -0.02em; }
+.sep { color: var(--border); }
+.version { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--border); padding: 2px 8px; border-radius: 3px; }
+.topbar-right { display: flex; gap: 20px; }
+.topbar-right a { font-size: 13px; color: var(--muted); transition: color .15s; }
+.topbar-right a:hover { color: var(--text); }
 
-  html { scroll-behavior: smooth; }
+.hero { margin-bottom: 3.5rem; }
+.hero h1 { font-size: clamp(2rem, 6vw, 3.2rem); font-weight: 300; letter-spacing: -0.035em; line-height: 1.1; margin-bottom: 1rem; }
+.hero h1 strong { font-weight: 500; }
+.hero-desc { font-size: 15px; color: var(--muted); max-width: 480px; line-height: 1.75; margin-bottom: 1.75rem; }
+.tag-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); background: var(--surface); }
+.tag.live { border-color: #b6e5cc; color: var(--green); background: var(--green-bg); }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    line-height: 1.75;
-    overflow-x: hidden;
-  }
+.scores { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 3.5rem; }
+.score { padding: 1.25rem 1.25rem 1rem; border-right: 1px solid var(--border); background: var(--surface); }
+.score:last-child { border-right: none; }
+.score-num { font-family: var(--mono); font-size: 1.6rem; font-weight: 500; line-height: 1; }
+.score-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.score-bar { height: 2px; background: var(--border); border-radius: 99px; margin-top: 12px; overflow: hidden; }
+.score-fill { height: 100%; background: var(--text); border-radius: 99px; }
 
-  /* ── NOISE OVERLAY ── */
-  body::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-    opacity: 0.4;
-  }
+.label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 1.25rem; }
 
-  .wrap { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 0 2rem; }
+.feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 3.5rem; }
+.feat { background: var(--surface); padding: 1.25rem; transition: background .15s; }
+.feat:hover { background: var(--bg); }
+.feat-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.feat-desc { font-size: 12px; color: var(--muted); line-height: 1.65; }
 
-  /* ── HERO ── */
-  .hero {
-    min-height: 100vh;
-    display: flex; flex-direction: column; justify-content: center;
-    padding: 6rem 0 4rem;
-    position: relative;
-  }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 3.5rem; }
+.stack-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.stack-head { padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.stack-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 14px; font-size: 12px; }
+.stack-row:hover { background: var(--bg); }
+.stack-row span { color: var(--muted); font-size: 11px; font-family: var(--mono); }
 
-  .hero-grid {
-    position: absolute; inset: 0; pointer-events: none;
-    background-image:
-      linear-gradient(rgba(245,166,35,0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(245,166,35,0.04) 1px, transparent 1px);
-    background-size: 60px 60px;
-    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
-  }
+.scale-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 3.5rem; }
+.scale-cell { background: var(--surface); padding: 1.5rem 1.25rem; }
+.scale-cell:hover { background: var(--bg); }
+.scale-num { font-family: var(--mono); font-size: 1.5rem; font-weight: 500; }
+.scale-unit { font-size: 11px; color: var(--muted); margin-top: 3px; }
 
-  .hero-eyebrow {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
-    color: var(--amber); margin-bottom: 2rem;
-    animation: fadeUp 0.6s ease both;
-  }
-  .hero-eyebrow::before {
-    content: ''; display: block; width: 24px; height: 1px; background: var(--amber);
-  }
+.checks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 3.5rem; }
+.check { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 5px; font-size: 12px; }
+.check::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
 
-  .hero-title {
-    font-family: 'Syne', sans-serif;
-    font-size: clamp(3.5rem, 10vw, 7.5rem);
-    font-weight: 800;
-    line-height: 0.92;
-    letter-spacing: -0.03em;
-    color: var(--white);
-    animation: fadeUp 0.6s 0.1s ease both;
-  }
+.code-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 3.5rem; }
+.code-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.code-head { display: flex; align-items: center; gap: 5px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.dr { width: 8px; height: 8px; border-radius: 50%; background: #f5c6c6; }
+.dy { width: 8px; height: 8px; border-radius: 50%; background: #f5e4c6; }
+.dg { width: 8px; height: 8px; border-radius: 50%; background: #c6f5d6; }
+pre { padding: 1rem 1.25rem; font-family: var(--mono); font-size: 11.5px; line-height: 2.1; color: var(--muted); overflow-x: auto; }
+.hl { color: var(--text); }
+.hl2 { color: var(--green); }
 
-  .hero-title span {
-    display: block;
-    background: linear-gradient(90deg, var(--amber), #ff8c42);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
+.endpoints { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 3.5rem; }
+.ep { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: var(--surface); font-size: 12px; transition: background .15s; }
+.ep:hover { background: var(--bg); }
+.ep-m { font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--green); min-width: 30px; }
+.ep-p { font-weight: 500; flex: 1; }
+.ep-d { color: var(--muted); font-size: 11px; }
 
-  .hero-desc {
-    max-width: 520px;
-    margin-top: 2rem;
-    font-size: 13px; color: var(--muted);
-    line-height: 1.9;
-    animation: fadeUp 0.6s 0.2s ease both;
-  }
+.timeline { position: relative; padding-left: 28px; margin-bottom: 3.5rem; }
+.timeline::before { content: ''; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 1px; background: var(--border); }
+.tl-item { position: relative; margin-bottom: 2rem; }
+.tl-item:last-child { margin-bottom: 0; }
+.tl-dot { position: absolute; left: -25px; top: 4px; width: 13px; height: 13px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+.tl-dot span { font-family: var(--mono); font-size: 7px; color: var(--muted); }
+.tl-title { font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+.tl-desc { font-size: 12px; color: var(--muted); line-height: 1.65; }
+.tl-link { font-size: 11px; font-family: var(--mono); color: var(--muted); margin-top: 4px; display: inline-block; text-decoration: underline; text-underline-offset: 3px; }
 
-  .hero-actions {
-    display: flex; gap: 12px; flex-wrap: wrap;
-    margin-top: 2.5rem;
-    animation: fadeUp 0.6s 0.3s ease both;
-  }
+footer { border-top: 1px solid var(--border); padding: 1.75rem 0 3rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.footer-left { display: flex; align-items: center; gap: 16px; }
+.footer-name { font-size: 14px; font-weight: 500; letter-spacing: -0.02em; }
+.footer-meta { font-size: 12px; color: var(--muted); }
+.footer-right { display: flex; gap: 20px; }
+.footer-right a { font-size: 12px; color: var(--muted); transition: color .15s; }
+.footer-right a:hover { color: var(--text); }
 
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 10px 22px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; font-weight: 500; letter-spacing: 0.05em;
-    border-radius: 4px;
-    text-decoration: none;
-    transition: all 0.2s;
-    cursor: pointer; border: none;
-  }
-  .btn-primary {
-    background: var(--amber); color: #000;
-  }
-  .btn-primary:hover { background: #ffc147; transform: translateY(-1px); }
-
-  .btn-ghost {
-    background: transparent;
-    border: 1px solid rgba(255,255,255,0.12);
-    color: var(--text);
-  }
-  .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
-
-  /* ── SCORE STRIP ── */
-  .scores {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
-    background: var(--border2);
-    border: 1px solid var(--border2);
-    border-radius: 8px;
-    overflow: hidden;
-    margin: 4rem 0;
-    animation: fadeUp 0.6s 0.4s ease both;
-  }
-
-  .score-item {
-    background: var(--bg2);
-    padding: 1.5rem;
-    position: relative; overflow: hidden;
-    transition: background 0.2s;
-  }
-  .score-item:hover { background: var(--bg3); }
-
-  .score-item::after {
-    content: '';
-    position: absolute; bottom: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--amber), transparent);
-  }
-
-  .score-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-  .score-val { font-family: 'Syne', sans-serif; font-size: 2rem; font-weight: 700; color: var(--white); line-height: 1; }
-  .score-sub { font-size: 10px; color: var(--amber); margin-top: 4px; }
-  .score-bar { height: 3px; background: var(--bg); border-radius: 99px; margin-top: 10px; overflow: hidden; }
-  .score-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--amber), var(--teal)); }
-
-  /* ── SECTIONS ── */
-  section { padding: 5rem 0; border-top: 1px solid var(--border2); }
-
-  .sec-label {
-    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
-    color: var(--amber); margin-bottom: 1rem;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .sec-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-
-  .sec-title {
-    font-family: 'Syne', sans-serif;
-    font-size: clamp(1.8rem, 5vw, 2.8rem);
-    font-weight: 700; color: var(--white);
-    line-height: 1.1; letter-spacing: -0.02em;
-    margin-bottom: 1rem;
-  }
-
-  .sec-sub { font-size: 13px; color: var(--muted); max-width: 480px; line-height: 1.9; }
-
-  /* ── FEATURE GRID ── */
-  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border2); border: 1px solid var(--border2); border-radius: 10px; overflow: hidden; margin-top: 3rem; }
-
-  .feat-card {
-    background: var(--bg2); padding: 1.6rem 1.5rem;
-    transition: background 0.2s;
-    position: relative;
-  }
-  .feat-card:hover { background: var(--bg3); }
-  .feat-card:hover .feat-icon { color: var(--amber); }
-
-  .feat-icon { font-size: 1.25rem; margin-bottom: 12px; transition: color 0.2s; }
-  .feat-name { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; color: var(--white); margin-bottom: 6px; }
-  .feat-desc { font-size: 12px; color: var(--muted); line-height: 1.75; }
-
-  /* ── ARCH BLOCK ── */
-  .arch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 3rem; }
-
-  .arch-card {
-    background: var(--bg2); border: 1px solid var(--border2);
-    border-radius: 8px; padding: 1.5rem;
-    position: relative; overflow: hidden;
-  }
-  .arch-card::before {
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, var(--amber), transparent);
-  }
-  .arch-tag { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; }
-  .arch-stack { display: flex; flex-direction: column; gap: 8px; }
-  .arch-item {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px;
-    background: var(--bg3); border-radius: 4px;
-    font-size: 12px; color: var(--text);
-  }
-  .arch-item span { color: var(--muted); font-size: 11px; }
-
-  /* ── SCALE STATS ── */
-  .scale-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 3rem; }
-
-  .scale-card {
-    background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px;
-    padding: 2rem 1.5rem; text-align: center;
-    position: relative; overflow: hidden;
-    transition: border-color 0.2s, transform 0.2s;
-  }
-  .scale-card:hover { border-color: var(--amber); transform: translateY(-2px); }
-  .scale-num {
-    font-family: 'Syne', sans-serif;
-    font-size: 2.4rem; font-weight: 800;
-    background: linear-gradient(90deg, var(--amber), var(--teal));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    line-height: 1;
-  }
-  .scale-unit { font-size: 11px; color: var(--amber); margin-top: 4px; margin-bottom: 10px; letter-spacing: 0.1em; }
-  .scale-label { font-size: 12px; color: var(--muted); }
-
-  /* ── SECURITY CHECKLIST ── */
-  .checks-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 2.5rem; }
-  .check-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 14px;
-    background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px;
-    font-size: 11px; color: var(--text);
-    transition: border-color 0.2s;
-  }
-  .check-item:hover { border-color: rgba(53,214,122,0.3); }
-  .check-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
-
-  /* ── SETUP ── */
-  .setup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 2.5rem; }
-
-  .setup-card {
-    background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; overflow: hidden;
-  }
-  .setup-head {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border2);
-    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber);
-    display: flex; align-items: center; gap: 8px;
-  }
-  .setup-head::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); opacity: 0.6; }
-  pre {
-    padding: 1.25rem 1.5rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; line-height: 2;
-    color: var(--text); overflow-x: auto;
-  }
-  .c-cmd   { color: var(--white); }
-  .c-arg   { color: var(--teal); }
-  .c-str   { color: var(--amber); }
-  .c-cmt   { color: var(--muted); }
-
-  /* ── HEALTH ENDPOINTS ── */
-  .endpoints { display: flex; flex-direction: column; gap: 8px; margin-top: 2rem; }
-  .ep {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 16px;
-    background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px;
-    font-size: 12px;
-    transition: border-color 0.2s;
-  }
-  .ep:hover { border-color: var(--amber); }
-  .ep-method { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: var(--green); min-width: 36px; }
-  .ep-path   { color: var(--white); font-weight: 500; flex: 1; }
-  .ep-desc   { color: var(--muted); font-size: 11px; }
-
-  /* ── PHASES ── */
-  .phases { display: flex; flex-direction: column; gap: 0; margin-top: 2.5rem; position: relative; }
-  .phases::before { content: ''; position: absolute; left: 18px; top: 0; bottom: 0; width: 1px; background: var(--border); }
-  .phase {
-    display: flex; gap: 1.5rem; padding: 1.25rem 0; padding-left: 52px; position: relative;
-  }
-  .phase-num {
-    position: absolute; left: 0; top: 1.25rem;
-    width: 36px; height: 36px; border-radius: 50%;
-    background: var(--bg2); border: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 700; color: var(--amber);
-    z-index: 1;
-  }
-  .phase-content { flex: 1; }
-  .phase-title { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; color: var(--white); margin-bottom: 4px; }
-  .phase-desc { font-size: 12px; color: var(--muted); }
-  .phase-link { font-size: 11px; color: var(--amber); text-decoration: none; margin-top: 4px; display: inline-block; }
-  .phase-link:hover { text-decoration: underline; }
-
-  /* ── FOOTER ── */
-  footer {
-    border-top: 1px solid var(--border2);
-    padding: 3rem 0 4rem;
-    display: flex; align-items: center; justify-content: space-between;
-    flex-wrap: wrap; gap: 16px;
-  }
-  .footer-brand { font-family: 'Syne', sans-serif; font-size: 1.4rem; font-weight: 800; color: var(--white); }
-  .footer-brand span { color: var(--amber); }
-  .footer-links { display: flex; gap: 20px; }
-  .footer-links a { font-size: 12px; color: var(--muted); text-decoration: none; transition: color 0.2s; }
-  .footer-links a:hover { color: var(--amber); }
-  .footer-meta { font-size: 11px; color: var(--muted); text-align: right; line-height: 1.8; }
-
-  /* ── VERSION BADGE ── */
-  .badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 1.5rem; animation: fadeUp 0.6s 0.35s ease both; }
-  .badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: var(--bg2); border: 1px solid var(--border2);
-    border-radius: 4px; overflow: hidden;
-    font-size: 11px;
-  }
-  .badge-k { padding: 3px 8px; background: var(--bg3); color: var(--muted); font-size: 10px; letter-spacing: 0.06em; }
-  .badge-v { padding: 3px 8px; color: var(--white); }
-  .badge-v.green { color: var(--green); }
-  .badge-v.amber { color: var(--amber); }
-
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(18px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  @media(max-width:680px){
-    .feat-grid, .arch-grid, .setup-cols, .scale-grid, .checks-grid { grid-template-columns: 1fr; }
-    .scores { grid-template-columns: repeat(2,1fr); }
-    footer { flex-direction: column; text-align: center; }
-    .footer-meta { text-align: center; }
-  }
+@media(max-width:600px){
+  .scores,.scale-strip { grid-template-columns: repeat(2,1fr); }
+  .feat-grid,.two-col,.checks,.code-grid { grid-template-columns: 1fr; }
+  footer { flex-direction: column; }
+}
 </style>
 </head>
 <body>
+<div class="page">
 
-<!-- ╔═══════════════════════════════╗ -->
-<!-- ║           HERO                ║ -->
-<!-- ╚═══════════════════════════════╝ -->
-<div class="wrap">
-  <section class="hero">
-    <div class="hero-grid"></div>
-    <div class="hero-eyebrow">v1.0.0 &nbsp;·&nbsp; Production Ready &nbsp;·&nbsp; MIT License</div>
-    <h1 class="hero-title">
-      Bublizi
-      <span>Chat at Scale.</span>
-    </h1>
-    <p class="hero-desc">
-      A production-ready chat platform engineered for 100K+ users — real-time messaging, WebRTC voice/video, AI assistance, and distributed architecture baked in from day one.
-    </p>
-    <div class="badge-row">
-      <div class="badge"><span class="badge-k">platform</span><span class="badge-v">React Native + Expo</span></div>
-      <div class="badge"><span class="badge-k">backend</span><span class="badge-v">Node.js + Socket.IO</span></div>
-      <div class="badge"><span class="badge-k">db</span><span class="badge-v amber">MongoDB + Redis</span></div>
-      <div class="badge"><span class="badge-k">status</span><span class="badge-v green">● live</span></div>
+  <nav class="topbar">
+    <div class="topbar-left">
+      <span class="logo">Bublizi</span>
+      <span class="sep">/</span>
+      <span class="version">v1.0.0</span>
     </div>
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="https://github.com/suvankar11223/Bublizi">↗ View on GitHub</a>
-      <a class="btn btn-ghost" href="#setup">Get Started →</a>
-    </div>
-
-    <div class="scores">
-      <div class="score-item">
-        <div class="score-label">Security</div>
-        <div class="score-val">87</div>
-        <div class="score-sub">Strong ✓</div>
-        <div class="score-bar"><div class="score-fill" style="width:87%"></div></div>
-      </div>
-      <div class="score-item">
-        <div class="score-label">Performance</div>
-        <div class="score-val">85</div>
-        <div class="score-sub">Good ✓</div>
-        <div class="score-bar"><div class="score-fill" style="width:85%"></div></div>
-      </div>
-      <div class="score-item">
-        <div class="score-label">Architecture</div>
-        <div class="score-val">92</div>
-        <div class="score-sub">Excellent ✓</div>
-        <div class="score-bar"><div class="score-fill" style="width:92%"></div></div>
-      </div>
-      <div class="score-item">
-        <div class="score-label">Production</div>
-        <div class="score-val">95</div>
-        <div class="score-sub">Excellent ✓</div>
-        <div class="score-bar"><div class="score-fill" style="width:95%"></div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── FEATURES ── -->
-  <section>
-    <div class="sec-label">Core Features</div>
-    <h2 class="sec-title">Everything built in.</h2>
-    <p class="sec-sub">From instant messaging to AI-powered suggestions — the full stack, ready to ship.</p>
-
-    <div class="feat-grid">
-      <div class="feat-card">
-        <div class="feat-icon">⚡</div>
-        <div class="feat-name">Real-time Messaging</div>
-        <div class="feat-desc">Instant delivery via Socket.IO with typing indicators, read receipts, and reactions.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">📹</div>
-        <div class="feat-name">Voice &amp; Video Calls</div>
-        <div class="feat-desc">WebRTC-based calling with TURN relay, ICE negotiation, and renegotiation support.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">🤖</div>
-        <div class="feat-name">AI Chat Assistant</div>
-        <div class="feat-desc">Built-in AI bot with context-aware suggestions and smart conversation linking.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">🎙</div>
-        <div class="feat-name">Voice Messages</div>
-        <div class="feat-desc">Record, send, and play back voice notes inline — no extra app needed.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">📎</div>
-        <div class="feat-name">File Sharing</div>
-        <div class="feat-desc">Upload images and files via Cloudinary with preview and progress tracking.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">🔔</div>
-        <div class="feat-name">Push Notifications</div>
-        <div class="feat-desc">Firebase Cloud Messaging for reliable, cross-platform background alerts.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">👥</div>
-        <div class="feat-name">Contact Sync</div>
-        <div class="feat-desc">Automatic phone contact discovery — see who's already on the platform.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">📌</div>
-        <div class="feat-name">Message Pinning</div>
-        <div class="feat-desc">Pin important messages to the top of any conversation for quick access.</div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon">🟢</div>
-        <div class="feat-name">Online Presence</div>
-        <div class="feat-desc">Redis-backed real-time user status — online, away, offline — at any scale.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── ARCHITECTURE ── -->
-  <section>
-    <div class="sec-label">Architecture</div>
-    <h2 class="sec-title">Engineered to scale.</h2>
-    <p class="sec-sub">Every layer chosen for resilience. Multi-server Socket.IO, distributed caching, async job queues.</p>
-
-    <div class="arch-grid">
-      <div class="arch-card">
-        <div class="arch-tag">Backend</div>
-        <div class="arch-stack">
-          <div class="arch-item">Node.js + Express <span>HTTP server</span></div>
-          <div class="arch-item">Socket.IO + Redis Adapter <span>real-time, multi-node</span></div>
-          <div class="arch-item">MongoDB <span>primary datastore</span></div>
-          <div class="arch-item">Redis <span>cache + sessions</span></div>
-          <div class="arch-item">BullMQ <span>async job queue</span></div>
-          <div class="arch-item">JWT (15min / 30day) <span>auth tokens</span></div>
-        </div>
-      </div>
-      <div class="arch-card">
-        <div class="arch-tag">Frontend</div>
-        <div class="arch-stack">
-          <div class="arch-item">React Native + Expo <span>cross-platform</span></div>
-          <div class="arch-item">Expo Router <span>navigation</span></div>
-          <div class="arch-item">Firebase Auth <span>identity</span></div>
-          <div class="arch-item">Socket.IO Client <span>real-time</span></div>
-          <div class="arch-item">React Context + Hooks <span>state</span></div>
-          <div class="arch-item">Cloudinary <span>media CDN</span></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── SCALE ── -->
-  <section>
-    <div class="sec-label">Scale Capacity</div>
-    <h2 class="sec-title">Built for production traffic.</h2>
-
-    <div class="scale-grid">
-      <div class="scale-card">
-        <div class="scale-num">100K+</div>
-        <div class="scale-unit">MAX USERS</div>
-        <div class="scale-label">Total registered users supported</div>
-      </div>
-      <div class="scale-card">
-        <div class="scale-num">10K+</div>
-        <div class="scale-unit">CONCURRENT</div>
-        <div class="scale-label">Simultaneous socket connections</div>
-      </div>
-      <div class="scale-card">
-        <div class="scale-num">1K+</div>
-        <div class="scale-unit">MSG / SEC</div>
-        <div class="scale-label">Messages relayed per second</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── SECURITY ── -->
-  <section>
-    <div class="sec-label">Security &amp; Performance</div>
-    <h2 class="sec-title">Hardened across 4 phases.</h2>
-    <p class="sec-sub">Every surface locked down. Every query optimized. 90-day audit retention.</p>
-
-    <div class="checks-grid">
-      <div class="check-item"><div class="check-dot"></div>JWT + Refresh Tokens</div>
-      <div class="check-item"><div class="check-dot"></div>Input Validation</div>
-      <div class="check-item"><div class="check-dot"></div>Redis Rate Limiting</div>
-      <div class="check-item"><div class="check-dot"></div>IP Brute Force Block</div>
-      <div class="check-item"><div class="check-dot"></div>Strong Password Policy</div>
-      <div class="check-item"><div class="check-dot"></div>Audit Logging 90d</div>
-      <div class="check-item"><div class="check-dot"></div>CORS Restrictions</div>
-      <div class="check-item"><div class="check-dot"></div>WebRTC Auth</div>
-      <div class="check-item"><div class="check-dot"></div>DB Connection Pooling</div>
-      <div class="check-item"><div class="check-dot"></div>Redis Caching</div>
-      <div class="check-item"><div class="check-dot"></div>Batch DB Queries</div>
-      <div class="check-item"><div class="check-dot"></div>Async BullMQ Jobs</div>
-      <div class="check-item"><div class="check-dot"></div>Request Timeouts</div>
-      <div class="check-item"><div class="check-dot"></div>Database Indexes</div>
-      <div class="check-item"><div class="check-dot"></div>Kubernetes Ready</div>
-    </div>
-  </section>
-
-  <!-- ── SETUP ── -->
-  <section id="setup">
-    <div class="sec-label">Quick Start</div>
-    <h2 class="sec-title">Up in minutes.</h2>
-    <p class="sec-sub">Prerequisites: Node 18+, MongoDB, Redis, Expo CLI, Firebase &amp; Cloudinary accounts.</p>
-
-    <div class="setup-cols">
-      <div class="setup-card">
-        <div class="setup-head">Backend</div>
-        <pre><span class="c-cmt"># navigate &amp; install</span>
-<span class="c-cmd">cd</span> <span class="c-arg">backend</span>
-<span class="c-cmd">npm</span> <span class="c-arg">install</span>
-
-<span class="c-cmt"># configure env</span>
-<span class="c-cmd">cp</span> <span class="c-arg">.env.example .env</span>
-
-<span class="c-cmt"># start dev server</span>
-<span class="c-cmd">npm</span> <span class="c-arg">run dev</span></pre>
-      </div>
-      <div class="setup-card">
-        <div class="setup-head">Frontend</div>
-        <pre><span class="c-cmt"># navigate &amp; install</span>
-<span class="c-cmd">cd</span> <span class="c-arg">frontend</span>
-<span class="c-cmd">npm</span> <span class="c-arg">install</span>
-
-<span class="c-cmt"># set API url</span>
-<span class="c-str">EXPO_PUBLIC_API_URL</span>=http://localhost:3000
-
-<span class="c-cmt"># launch expo</span>
-<span class="c-cmd">npx expo start</span></pre>
-      </div>
-      <div class="setup-card">
-        <div class="setup-head">Docker</div>
-        <pre><span class="c-cmt"># build + run all services</span>
-<span class="c-cmd">docker-compose</span> <span class="c-arg">build</span>
-<span class="c-cmd">docker-compose</span> <span class="c-arg">up -d</span></pre>
-      </div>
-      <div class="setup-card">
-        <div class="setup-head">Kubernetes</div>
-        <pre><span class="c-cmt"># deploy manifests</span>
-<span class="c-cmd">kubectl</span> <span class="c-arg">apply -f k8s/</span>
-
-<span class="c-cmt"># check pod status</span>
-<span class="c-cmd">kubectl</span> <span class="c-arg">get pods</span></pre>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── HEALTH ── -->
-  <section>
-    <div class="sec-label">Health Monitoring</div>
-    <h2 class="sec-title">Full observability.</h2>
-    <p class="sec-sub">Load-balancer and Kubernetes probes out of the box. No extra config.</p>
-
-    <div class="endpoints">
-      <div class="ep"><span class="ep-method">GET</span><span class="ep-path">/health</span><span class="ep-desc">Overall system health — all services</span></div>
-      <div class="ep"><span class="ep-method">GET</span><span class="ep-path">/ready</span><span class="ep-desc">Readiness probe for load balancers</span></div>
-      <div class="ep"><span class="ep-method">GET</span><span class="ep-path">/live</span><span class="ep-desc">Liveness probe for Kubernetes</span></div>
-      <div class="ep"><span class="ep-method">GET</span><span class="ep-path">/stats</span><span class="ep-desc">Detailed runtime statistics</span></div>
-    </div>
-  </section>
-
-  <!-- ── PHASES ── -->
-  <section>
-    <div class="sec-label">Build Journey</div>
-    <h2 class="sec-title">4 phases to production.</h2>
-
-    <div class="phases">
-      <div class="phase">
-        <div class="phase-num">0</div>
-        <div class="phase-content">
-          <div class="phase-title">Security Foundation</div>
-          <div class="phase-desc">JWT auth, input validation, CORS lockdown, password policy, audit logging infrastructure.</div>
-          <a class="phase-link" href="./PHASE_0_SECURITY_FOUNDATION_COMPLETE.md">Read docs →</a>
-        </div>
-      </div>
-      <div class="phase">
-        <div class="phase-num">1</div>
-        <div class="phase-content">
-          <div class="phase-title">Performance</div>
-          <div class="phase-desc">Connection pooling, Redis caching, batch queries, database indexing, request timeouts.</div>
-          <a class="phase-link" href="./PHASE_1_COMPLETE.md">Read docs →</a>
-        </div>
-      </div>
-      <div class="phase">
-        <div class="phase-num">2</div>
-        <div class="phase-content">
-          <div class="phase-title">Distributed Systems</div>
-          <div class="phase-desc">Socket.IO Redis adapter, multi-server presence, BullMQ async jobs, distributed state.</div>
-          <a class="phase-link" href="./PHASE_2_COMPLETE.md">Read docs →</a>
-        </div>
-      </div>
-      <div class="phase">
-        <div class="phase-num">3</div>
-        <div class="phase-content">
-          <div class="phase-title">Security Hardening</div>
-          <div class="phase-desc">Brute force IP blocking, rate limiting, WebRTC signaling auth, 90-day audit retention.</div>
-          <a class="phase-link" href="./PHASE_3_SECURITY_HARDENING.md">Read docs →</a>
-        </div>
-      </div>
-      <div class="phase">
-        <div class="phase-num">4</div>
-        <div class="phase-content">
-          <div class="phase-title">Architecture Stability</div>
-          <div class="phase-desc">Health checks, Kubernetes readiness, load balancer probes, comprehensive monitoring.</div>
-          <a class="phase-link" href="./PHASE_4_ARCHITECTURE_STABILITY.md">Read docs →</a>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── FOOTER ── -->
-  <footer>
-    <div>
-      <div class="footer-brand">Bub<span>lizi</span></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px;">Built with ❤ by the Bublizi team</div>
-    </div>
-    <div class="footer-links">
+    <div class="topbar-right">
       <a href="https://github.com/suvankar11223/Bublizi">GitHub</a>
       <a href="./PRODUCTION_READINESS_FINAL.md">Docs</a>
       <a href="https://github.com/suvankar11223/Bublizi/issues">Issues</a>
-      <a href="./FIREBASE_SETUP.md">Firebase Guide</a>
     </div>
-    <div class="footer-meta">
-      Version 1.0.0 &nbsp;·&nbsp; MIT License<br>
-      Last updated March 27, 2026
+  </nav>
+
+  <div class="hero">
+    <h1><strong>Chat at scale.</strong><br>Production-ready from day one.</h1>
+    <p class="hero-desc">React Native + Node.js chat platform with real-time messaging, WebRTC voice/video, AI assistant, and distributed architecture supporting 100K+ users.</p>
+    <div class="tag-row">
+      <span class="tag">React Native</span>
+      <span class="tag">Node.js</span>
+      <span class="tag">Socket.IO</span>
+      <span class="tag">MongoDB</span>
+      <span class="tag">Redis</span>
+      <span class="tag">WebRTC</span>
+      <span class="tag live">● Production Ready</span>
+    </div>
+  </div>
+
+  <div class="scores">
+    <div class="score"><div class="score-num">87</div><div class="score-label">Security</div><div class="score-bar"><div class="score-fill" style="width:87%"></div></div></div>
+    <div class="score"><div class="score-num">85</div><div class="score-label">Performance</div><div class="score-bar"><div class="score-fill" style="width:85%"></div></div></div>
+    <div class="score"><div class="score-num">92</div><div class="score-label">Architecture</div><div class="score-bar"><div class="score-fill" style="width:92%"></div></div></div>
+    <div class="score"><div class="score-num">95</div><div class="score-label">Production</div><div class="score-bar"><div class="score-fill" style="width:95%"></div></div></div>
+  </div>
+
+  <div class="label">Features</div>
+  <div class="feat-grid">
+    <div class="feat"><div class="feat-name">Real-time Messaging</div><div class="feat-desc">Instant delivery via Socket.IO with typing indicators and read receipts.</div></div>
+    <div class="feat"><div class="feat-name">Voice &amp; Video Calls</div><div class="feat-desc">WebRTC with TURN relay, ICE negotiation, and renegotiation support.</div></div>
+    <div class="feat"><div class="feat-name">AI Chat Assistant</div><div class="feat-desc">Built-in bot with context-aware suggestions and cross-chat linking.</div></div>
+    <div class="feat"><div class="feat-name">Voice Messages</div><div class="feat-desc">Record and send voice notes inline with playback support.</div></div>
+    <div class="feat"><div class="feat-name">File Sharing</div><div class="feat-desc">Cloudinary-backed image and file uploads with progress tracking.</div></div>
+    <div class="feat"><div class="feat-name">Push Notifications</div><div class="feat-desc">Firebase Cloud Messaging for reliable background alerts.</div></div>
+    <div class="feat"><div class="feat-name">Contact Sync</div><div class="feat-desc">Automatic phone contact discovery to find existing users.</div></div>
+    <div class="feat"><div class="feat-name">Online Presence</div><div class="feat-desc">Redis-backed real-time user status at any scale.</div></div>
+    <div class="feat"><div class="feat-name">Message Reactions</div><div class="feat-desc">Emoji reactions and message pinning for important threads.</div></div>
+  </div>
+
+  <div class="label">Architecture</div>
+  <div class="two-col">
+    <div class="stack-card">
+      <div class="stack-head">Backend</div>
+      <div class="stack-row">Node.js + Express <span>HTTP server</span></div>
+      <div class="stack-row">Socket.IO + Redis Adapter <span>real-time</span></div>
+      <div class="stack-row">MongoDB <span>primary DB</span></div>
+      <div class="stack-row">Redis <span>cache + sessions</span></div>
+      <div class="stack-row">BullMQ <span>async jobs</span></div>
+      <div class="stack-row">JWT 15min / 30day <span>auth</span></div>
+    </div>
+    <div class="stack-card">
+      <div class="stack-head">Frontend</div>
+      <div class="stack-row">React Native + Expo <span>cross-platform</span></div>
+      <div class="stack-row">Expo Router <span>navigation</span></div>
+      <div class="stack-row">Firebase Auth <span>identity</span></div>
+      <div class="stack-row">Socket.IO Client <span>real-time</span></div>
+      <div class="stack-row">React Context + Hooks <span>state</span></div>
+      <div class="stack-row">Cloudinary <span>media CDN</span></div>
+    </div>
+  </div>
+
+  <div class="label">Scale Capacity</div>
+  <div class="scale-strip">
+    <div class="scale-cell"><div class="scale-num">100K+</div><div class="scale-unit">Total users</div></div>
+    <div class="scale-cell"><div class="scale-num">10K+</div><div class="scale-unit">Concurrent connections</div></div>
+    <div class="scale-cell"><div class="scale-num">1K+</div><div class="scale-unit">Messages per second</div></div>
+  </div>
+
+  <div class="label">Security &amp; Performance</div>
+  <div class="checks">
+    <div class="check">JWT + Refresh Tokens</div>
+    <div class="check">Input Validation</div>
+    <div class="check">Redis Rate Limiting</div>
+    <div class="check">IP Brute Force Block</div>
+    <div class="check">Strong Password Policy</div>
+    <div class="check">Audit Logging 90d</div>
+    <div class="check">CORS Restrictions</div>
+    <div class="check">WebRTC Auth</div>
+    <div class="check">DB Connection Pooling</div>
+    <div class="check">Redis Caching</div>
+    <div class="check">Batch DB Queries</div>
+    <div class="check">Async BullMQ Jobs</div>
+    <div class="check">Request Timeouts</div>
+    <div class="check">Database Indexes</div>
+    <div class="check">Kubernetes Ready</div>
+  </div>
+
+  <div class="label">Quick Start</div>
+  <div class="code-grid">
+    <div class="code-card">
+      <div class="code-head"><div class="dr"></div><div class="dy"></div><div class="dg"></div>backend</div>
+      <pre><span class="hl">cd</span> backend
+npm install
+cp .env.example <span class="hl2">.env</span>
+npm run dev</pre>
+    </div>
+    <div class="code-card">
+      <div class="code-head"><div class="dr"></div><div class="dy"></div><div class="dg"></div>frontend</div>
+      <pre><span class="hl">cd</span> frontend
+npm install
+<span class="hl2">npx expo start</span></pre>
+    </div>
+    <div class="code-card">
+      <div class="code-head"><div class="dr"></div><div class="dy"></div><div class="dg"></div>docker</div>
+      <pre>docker-compose build
+docker-compose <span class="hl2">up -d</span></pre>
+    </div>
+    <div class="code-card">
+      <div class="code-head"><div class="dr"></div><div class="dy"></div><div class="dg"></div>kubernetes</div>
+      <pre>kubectl apply <span class="hl">-f</span> k8s/
+kubectl <span class="hl2">get pods</span></pre>
+    </div>
+  </div>
+
+  <div class="label">Health Endpoints</div>
+  <div class="endpoints">
+    <div class="ep"><span class="ep-m">GET</span><span class="ep-p">/health</span><span class="ep-d">Overall system health</span></div>
+    <div class="ep"><span class="ep-m">GET</span><span class="ep-p">/ready</span><span class="ep-d">Readiness probe for load balancers</span></div>
+    <div class="ep"><span class="ep-m">GET</span><span class="ep-p">/live</span><span class="ep-d">Liveness probe for Kubernetes</span></div>
+    <div class="ep"><span class="ep-m">GET</span><span class="ep-p">/stats</span><span class="ep-d">Detailed runtime statistics</span></div>
+  </div>
+
+  <div class="label">Build Phases</div>
+  <div class="timeline">
+    <div class="tl-item">
+      <div class="tl-dot"><span>0</span></div>
+      <div class="tl-title">Security Foundation</div>
+      <div class="tl-desc">JWT auth, input validation, CORS lockdown, password policy, audit logging.</div>
+      <a class="tl-link" href="./PHASE_0_SECURITY_FOUNDATION_COMPLETE.md">PHASE_0_SECURITY_FOUNDATION_COMPLETE.md</a>
+    </div>
+    <div class="tl-item">
+      <div class="tl-dot"><span>1</span></div>
+      <div class="tl-title">Performance</div>
+      <div class="tl-desc">Connection pooling, Redis caching, batch queries, indexing, request timeouts.</div>
+      <a class="tl-link" href="./PHASE_1_COMPLETE.md">PHASE_1_COMPLETE.md</a>
+    </div>
+    <div class="tl-item">
+      <div class="tl-dot"><span>2</span></div>
+      <div class="tl-title">Distributed Systems</div>
+      <div class="tl-desc">Socket.IO Redis adapter, multi-server presence, BullMQ async jobs, distributed state.</div>
+      <a class="tl-link" href="./PHASE_2_COMPLETE.md">PHASE_2_COMPLETE.md</a>
+    </div>
+    <div class="tl-item">
+      <div class="tl-dot"><span>3</span></div>
+      <div class="tl-title">Security Hardening</div>
+      <div class="tl-desc">Brute force IP blocking, rate limiting, WebRTC auth, 90-day retention.</div>
+      <a class="tl-link" href="./PHASE_3_SECURITY_HARDENING.md">PHASE_3_SECURITY_HARDENING.md</a>
+    </div>
+    <div class="tl-item">
+      <div class="tl-dot"><span>4</span></div>
+      <div class="tl-title">Architecture Stability</div>
+      <div class="tl-desc">Health checks, Kubernetes probes, load balancer readiness, monitoring.</div>
+      <a class="tl-link" href="./PHASE_4_ARCHITECTURE_STABILITY.md">PHASE_4_ARCHITECTURE_STABILITY.md</a>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-left">
+      <span class="footer-name">Bublizi</span>
+      <span class="footer-meta">MIT License · v1.0.0 · March 2026</span>
+    </div>
+    <div class="footer-right">
+      <a href="https://github.com/suvankar11223/Bublizi">GitHub</a>
+      <a href="./PRODUCTION_READINESS_FINAL.md">Docs</a>
+      <a href="./FIREBASE_SETUP.md">Firebase</a>
+      <a href="https://github.com/suvankar11223/Bublizi/issues">Issues</a>
     </div>
   </footer>
-</div>
 
+</div>
 </body>
 </html>
