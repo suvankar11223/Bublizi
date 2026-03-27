@@ -63,3 +63,10 @@ dump.rdb
 
 # MSI installers
 *.msi
+
+# Implementation documentation (temporary)
+PHASE_*.md
+OFFLINE_FIRST_*.md
+*_IMPLEMENTATION_*.md
+*_BUG_REPORT.md
+*_TESTING_GUIDE.md
